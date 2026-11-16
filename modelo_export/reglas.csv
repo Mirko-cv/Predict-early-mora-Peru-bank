@@ -1,0 +1,6 @@
+variante,candidatas,n_vars,Gini TEST,estabilidad (Jaccard),vars de perfil,familias cubiertas,usa INT_SALDO
+solo R1 (configuración final),30,14,0.4117928922439553,0.8694444444444445,3,6,True
+R1 + R2,22,14,0.4069049792007786,0.7875,3,5,True
+R1 + R5,28,13,0.4079880817983801,0.8158730158730158,3,6,False
+R1 + R2 + R5 (versión anterior),20,13,0.4060732350577487,0.9047619047619048,3,5,False
+solo R1 + R3 (tope 2 por familia),30,11,0.3997363709082622,0.7948717948717948,2,6,True

@@ -1,0 +1,5 @@
+,Base,Gini 50%,Solo estadístico (70/30)
+Logit,3.586,3.372,3.42
+Scorecard,4.56,4.121,3.769
+Árbol prof.4,3.3,2.6,2.2
+LightGBM,2.55,3.3,3.8

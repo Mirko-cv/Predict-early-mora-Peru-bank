@@ -1,0 +1,40 @@
+{
+  "nombre": "Scorecard early de morosidad",
+  "version": "3.0",
+  "evento": "predictiva_early (bad = 1 - predictiva_early)",
+  "n_variables": 14,
+  "base_total": 130184,
+  "muestra_desarrollo": 130184,
+  "sample_frac": 1,
+  "seed": 42,
+  "ventana_desarrollo": "202104-202109",
+  "ventana_oot": "202110-202111",
+  "gini": {
+    "TRAIN": 0.4079144274574862,
+    "TEST": 0.4117928922439553,
+    "OOT": 0.40326086449792475
+  },
+  "ks_oot": 0.307682237190203,
+  "calibracion_oot_obs_pred": 1.3374603318555516,
+  "psi_score_oot": 0.023264697440152686,
+  "challenger_gini_oot": 0.43400614801012183,
+  "reglas_aplicadas": [
+    "R1 cobertura >= 10%"
+  ],
+  "reglas_descartadas": [
+    "R2 ventana corta (cuesta Gini y la estabilidad que compraba desaparece con toda la base)",
+    "R3 tope por familia (peor Gini; su estabilidad perfecta es artefacto de un modelo más chico)",
+    "R4 familias obligatorias (el hueco que tapaba lo causaba R2)",
+    "R5 excluir INT_SALDO (es comportamiento del cliente, no tarifa; circularidad pasa a monitoreo)"
+  ],
+  "excluidas_por_politica": [
+    "GENERO",
+    "ESTADO_CIVIL",
+    "DEPARTAMENTO",
+    "PROVINCIA",
+    "DISTRITO",
+    "serie",
+    "PERIODO"
+  ],
+  "usa_INT_SALDO": true
+}

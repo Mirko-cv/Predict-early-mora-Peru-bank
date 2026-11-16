@@ -1,0 +1,5 @@
+,Poder predictivo,Robustez,Interpretabilidad,Implementación,Explicación de rechazos y equidad,TOTAL
+Logit,2.744,5.0,4.0,3.0,3.0,3.586
+Scorecard,3.242,5.0,5.0,5.0,5.0,4.56
+Árbol prof.4,1.0,5.0,4.0,4.0,3.0,3.3
+LightGBM,5.0,1.0,2.0,2.0,2.0,2.55
