@@ -1,0 +1,547 @@
+{
+ "seleccion": [
+  "MAX_LINEA12",
+  "MESES_ANT_RCC",
+  "D12_MAXD",
+  "SITUACION_LABORAL",
+  "CONTAR_COMP",
+  "MAX_GARAN_SALDO6",
+  "INT_SALDO",
+  "GRADO_INSTRUCCION",
+  "Max_DismCONS",
+  "MAX_RATIO_PRES6",
+  "PROMDIR_IND12",
+  "FLAG_TENENCIA_VEHICULAR",
+  "DIF_BUE_MAL6",
+  "PROM3_PROM6"
+ ],
+ "variables": {
+  "MAX_LINEA12": {
+   "tipo": "numerical",
+   "puntos": [
+    40.38213133594104,
+    41.32531434134315,
+    43.87614611812234,
+    45.24051656078154,
+    47.32614979281503,
+    48.72758273541395,
+    51.59531391422628
+   ],
+   "puntos_missing": 33.69089411902476,
+   "puntos_special": 40.38591581193706,
+   "etiquetas": [
+    "(-inf, 995.93)",
+    "[995.93, 1496.34)",
+    "[1496.34, 2600.01)",
+    "[2600.01, 5217.86)",
+    "[5217.86, 16400.01)",
+    "[16400.01, 34581.24)",
+    "[34581.24, inf)"
+   ],
+   "cortes": [
+    995.9349975585938,
+    1496.3400268554688,
+    2600.0050048828125,
+    5217.860107421875,
+    16400.0146484375,
+    34581.244140625
+   ]
+  },
+  "MESES_ANT_RCC": {
+   "tipo": "numerical",
+   "puntos": [
+    32.08869151811497,
+    39.58268937059575,
+    39.72786494918203,
+    40.46293720279398,
+    43.87881910569535
+   ],
+   "puntos_missing": 40.38591581193706,
+   "puntos_special": 40.38591581193706,
+   "etiquetas": [
+    "(-inf, 15.50)",
+    "[15.50, 44.50)",
+    "[44.50, 97.50)",
+    "[97.50, 111.50)",
+    "[111.50, inf)"
+   ],
+   "cortes": [
+    15.5,
+    44.5,
+    97.5,
+    111.5
+   ]
+  },
+  "D12_MAXD": {
+   "tipo": "numerical",
+   "puntos": [
+    46.86623341582138,
+    42.32850600702355,
+    41.61951822120665,
+    41.529988629283935,
+    33.80807864576332
+   ],
+   "puntos_missing": 40.56839017232859,
+   "puntos_special": 40.38591581193706,
+   "etiquetas": [
+    "(-inf, 0.14)",
+    "[0.14, 0.35)",
+    "[0.35, 0.75)",
+    "[0.75, 1.00)",
+    "[1.00, inf)"
+   ],
+   "cortes": [
+    0.13955503702163696,
+    0.3491688072681427,
+    0.7488193511962891,
+    0.9984625279903412
+   ]
+  },
+  "SITUACION_LABORAL": {
+   "tipo": "categorical",
+   "puntos": [
+    44.93422421207353,
+    39.55688372562768,
+    33.01754314031517
+   ],
+   "puntos_missing": 40.38591581193706,
+   "puntos_special": 40.38591581193706,
+   "etiquetas": [
+    "DEPENDIENTE",
+    "INDEPENDIENTE",
+    "INFORMAL"
+   ],
+   "categorias": [
+    [
+     "DEPENDIENTE"
+    ],
+    [
+     "INDEPENDIENTE"
+    ],
+    [
+     "INFORMAL"
+    ]
+   ]
+  },
+  "CONTAR_COMP": {
+   "tipo": "numerical",
+   "puntos": [
+    36.41177584812658,
+    36.64449809787157,
+    36.8971258584303,
+    41.64841641899958,
+    42.59777323515622
+   ],
+   "puntos_missing": 40.38591581193706,
+   "puntos_special": 40.38591581193706,
+   "etiquetas": [
+    "(-inf, 5.50)",
+    "[5.50, 7.50)",
+    "[7.50, 9.50)",
+    "[9.50, 11.50)",
+    "[11.50, inf)"
+   ],
+   "cortes": [
+    5.5,
+    7.5,
+    9.5,
+    11.5
+   ]
+  },
+  "MAX_GARAN_SALDO6": {
+   "tipo": "numerical",
+   "puntos": [
+    40.68309431718824,
+    38.428808645786056,
+    38.11611846621021,
+    31.529493628488417
+   ],
+   "puntos_missing": 42.4229246810164,
+   "puntos_special": 40.38591581193706,
+   "etiquetas": [
+    "(-inf, 0.98)",
+    "[0.98, 2.52)",
+    "[2.52, 10.40)",
+    "[10.40, inf)"
+   ],
+   "cortes": [
+    0.980139434337616,
+    2.517948269844055,
+    10.396838188171387
+   ]
+  },
+  "INT_SALDO": {
+   "tipo": "numerical",
+   "puntos": [
+    48.72077810374645,
+    45.50329389565316,
+    43.84176635505172,
+    39.46223273877957,
+    37.546380458113305,
+    35.94886767990567,
+    33.942878716883136
+   ],
+   "puntos_missing": 43.080251940743594,
+   "puntos_special": 40.38591581193706,
+   "etiquetas": [
+    "(-inf, 0.00)",
+    "[0.00, 0.01)",
+    "[0.01, 0.01)",
+    "[0.01, 0.02)",
+    "[0.02, 0.03)",
+    "[0.03, 0.04)",
+    "[0.04, inf)"
+   ],
+   "cortes": [
+    0.0017559945117682219,
+    0.008902745321393013,
+    0.01112096942961216,
+    0.016872736625373363,
+    0.029047170653939247,
+    0.037502044811844826
+   ]
+  },
+  "GRADO_INSTRUCCION": {
+   "tipo": "categorical",
+   "puntos": [
+    48.17241484364612,
+    41.385365117379315,
+    35.2932348189057,
+    35.93728101783939
+   ],
+   "puntos_missing": 38.38307185638234,
+   "puntos_special": 40.38591581193706,
+   "etiquetas": [
+    "SUPERIOR COMPLETA",
+    "SECUNDARIA COMPLETA",
+    "SECUNDARIA 5º AÑO, SECUNDARIA 4º AÑO",
+    "SECUNDARIA 3º AÑO, SUPERIOR 1º AÑO, TECNICA COMPLETA, PRIMARIA COMPLETA, SUPERIOR 2º AÑO, SECUNDARIA 2º AÑO, SECUNDARIA 1º AÑO, PRIMARIA 6º GRADO, PRIMARIA 5º GRADO, SUPERIOR 3º AÑO, TECNICA 1º AÑO, PRIMARIA 4º GRADO, SUPERIOR 4º AÑO, TECNICA 2º AÑO, SUPERIOR 5º AÑO, PRIMARIA 3º GRADO, TECNICA 3º AÑO, ILETRADO, PRIMARIA 2º GRADO, SUPERIOR 6º AÑO, PRIMARIA 1º GRADO, SUPERIOR 8º AÑO, TECNICA 5º AÑO, SUPERIOR 7º AÑO, SECUNDARIA 6º AÑO, INICIAL, TECNICA 4º AÑO, EDUCACION ESPECIAL"
+   ],
+   "categorias": [
+    [
+     "SUPERIOR COMPLETA"
+    ],
+    [
+     "SECUNDARIA COMPLETA"
+    ],
+    [
+     "SECUNDARIA 5º AÑO",
+     "SECUNDARIA 4º AÑO"
+    ],
+    [
+     "SECUNDARIA 3º AÑO",
+     "SUPERIOR 1º AÑO",
+     "TECNICA COMPLETA",
+     "PRIMARIA COMPLETA",
+     "SUPERIOR 2º AÑO",
+     "SECUNDARIA 2º AÑO",
+     "SECUNDARIA 1º AÑO",
+     "PRIMARIA 6º GRADO",
+     "PRIMARIA 5º GRADO",
+     "SUPERIOR 3º AÑO",
+     "TECNICA 1º AÑO",
+     "PRIMARIA 4º GRADO",
+     "SUPERIOR 4º AÑO",
+     "TECNICA 2º AÑO",
+     "SUPERIOR 5º AÑO",
+     "PRIMARIA 3º GRADO",
+     "TECNICA 3º AÑO",
+     "ILETRADO",
+     "PRIMARIA 2º GRADO",
+     "SUPERIOR 6º AÑO",
+     "PRIMARIA 1º GRADO",
+     "SUPERIOR 8º AÑO",
+     "TECNICA 5º AÑO",
+     "SUPERIOR 7º AÑO",
+     "SECUNDARIA 6º AÑO",
+     "INICIAL",
+     "TECNICA 4º AÑO",
+     "EDUCACION ESPECIAL"
+    ]
+   ]
+  },
+  "Max_DismCONS": {
+   "tipo": "numerical",
+   "puntos": [
+    33.25739270633375,
+    39.745240168093,
+    42.87329455389147
+   ],
+   "puntos_missing": 40.38591581193706,
+   "puntos_special": 40.38591581193706,
+   "etiquetas": [
+    "(-inf, 0.50)",
+    "[0.50, 1.50)",
+    "[1.50, inf)"
+   ],
+   "cortes": [
+    0.5,
+    1.5
+   ]
+  },
+  "MAX_RATIO_PRES6": {
+   "tipo": "numerical",
+   "puntos": [
+    43.99794195265405,
+    32.03560726073417
+   ],
+   "puntos_missing": 42.60585850504806,
+   "puntos_special": 40.38591581193706,
+   "etiquetas": [
+    "(-inf, 1.00)",
+    "[1.00, inf)"
+   ],
+   "cortes": [
+    0.9999857544898987
+   ]
+  },
+  "PROMDIR_IND12": {
+   "tipo": "numerical",
+   "puntos": [
+    45.95195770160913,
+    45.85703818470862,
+    44.11243523946884,
+    40.83977644739469,
+    40.66490888058864,
+    33.991208817123
+   ],
+   "puntos_missing": 40.476060636366,
+   "puntos_special": 40.38591581193706,
+   "etiquetas": [
+    "(-inf, 0.18)",
+    "[0.18, 0.40)",
+    "[0.40, 0.50)",
+    "[0.50, 0.94)",
+    "[0.94, 1.00)",
+    "[1.00, inf)"
+   ],
+   "cortes": [
+    0.1824980527162552,
+    0.39510007202625275,
+    0.49536632001399994,
+    0.9400297403335571,
+    0.9986632764339447
+   ]
+  },
+  "FLAG_TENENCIA_VEHICULAR": {
+   "tipo": "numerical",
+   "puntos": [
+    39.34494620426462,
+    44.888957632054826
+   ],
+   "puntos_missing": 40.38591581193706,
+   "puntos_special": 40.38591581193706,
+   "etiquetas": [
+    "(-inf, 0.50)",
+    "[0.50, inf)"
+   ],
+   "cortes": [
+    0.5
+   ]
+  },
+  "DIF_BUE_MAL6": {
+   "tipo": "numerical",
+   "puntos": [
+    36.810002808866805,
+    37.25233960384685,
+    41.880757365429176
+   ],
+   "puntos_missing": 36.25875052449003,
+   "puntos_special": 40.38591581193706,
+   "etiquetas": [
+    "(-inf, 3.50)",
+    "[3.50, 5.50)",
+    "[5.50, inf)"
+   ],
+   "cortes": [
+    3.5,
+    5.5
+   ]
+  },
+  "PROM3_PROM6": {
+   "tipo": "numerical",
+   "puntos": [
+    44.15545773665807,
+    43.13274257409631,
+    41.31900040595653,
+    38.98721380363031,
+    38.79169220585319
+   ],
+   "puntos_missing": 41.85393193219482,
+   "puntos_special": 40.38591581193706,
+   "etiquetas": [
+    "(-inf, 0.60)",
+    "[0.60, 0.75)",
+    "[0.75, 1.00)",
+    "[1.00, 1.14)",
+    "[1.14, inf)"
+   ],
+   "cortes": [
+    0.5974543690681458,
+    0.7451701760292053,
+    0.9999994933605194,
+    1.1401439309120178
+   ]
+  }
+ },
+ "escala": {
+  "PDO": 20,
+  "score_base": 600,
+  "odds_base": 50,
+  "factor": 28.85390081777927,
+  "offset": 487.1228762045055
+ },
+ "puntos_neutro": 40.38591581193706,
+ "cortes_banda": [
+  552.7868565709268,
+  568.1508017817889,
+  580.2889645186489,
+  591.7553639167008
+ ],
+ "etiquetas_banda": [
+  "E · muy alto",
+  "D · alto",
+  "C · medio",
+  "B · bajo",
+  "A · muy bajo"
+ ],
+ "familia": {
+  "MAX_LINEA12": "Tarjeta: línea y uso",
+  "MESES_ANT_RCC": "Relación con el sistema",
+  "D12_MAXD": "Variación de deuda",
+  "SITUACION_LABORAL": "Perfil del cliente",
+  "CONTAR_COMP": "Comportamiento de pago",
+  "MAX_GARAN_SALDO6": "Estructura de la deuda",
+  "INT_SALDO": "Estructura de la deuda",
+  "GRADO_INSTRUCCION": "Perfil del cliente",
+  "Max_DismCONS": "Variación de deuda",
+  "MAX_RATIO_PRES6": "Estructura de la deuda",
+  "PROMDIR_IND12": "Relación con el sistema",
+  "FLAG_TENENCIA_VEHICULAR": "Perfil del cliente",
+  "DIF_BUE_MAL6": "Comportamiento de pago",
+  "PROM3_PROM6": "Variación de deuda"
+ },
+ "categoricas": [
+  "SITUACION_LABORAL",
+  "GRADO_INSTRUCCION"
+ ],
+ "niveles": {
+  "SITUACION_LABORAL": [
+   "DEPENDIENTE",
+   "INDEPENDIENTE",
+   "INFORMAL"
+  ],
+  "GRADO_INSTRUCCION": [
+   "EDUCACION ESPECIAL",
+   "ILETRADO",
+   "INICIAL",
+   "PRIMARIA 1º GRADO",
+   "PRIMARIA 2º GRADO",
+   "PRIMARIA 3º GRADO",
+   "PRIMARIA 4º GRADO",
+   "PRIMARIA 5º GRADO",
+   "PRIMARIA 6º GRADO",
+   "PRIMARIA COMPLETA",
+   "SECUNDARIA 1º AÑO",
+   "SECUNDARIA 2º AÑO",
+   "SECUNDARIA 3º AÑO",
+   "SECUNDARIA 4º AÑO",
+   "SECUNDARIA 5º AÑO",
+   "SECUNDARIA 6º AÑO",
+   "SECUNDARIA COMPLETA",
+   "SUPERIOR 1º AÑO",
+   "SUPERIOR 2º AÑO",
+   "SUPERIOR 3º AÑO",
+   "SUPERIOR 4º AÑO",
+   "SUPERIOR 5º AÑO",
+   "SUPERIOR 6º AÑO",
+   "SUPERIOR 7º AÑO",
+   "SUPERIOR 8º AÑO",
+   "SUPERIOR COMPLETA",
+   "TECNICA 1º AÑO",
+   "TECNICA 2º AÑO",
+   "TECNICA 3º AÑO",
+   "TECNICA 4º AÑO",
+   "TECNICA 5º AÑO",
+   "TECNICA COMPLETA"
+  ]
+ },
+ "moda": {
+  "SITUACION_LABORAL": "DEPENDIENTE",
+  "GRADO_INSTRUCCION": "SECUNDARIA COMPLETA"
+ },
+ "rangos": {
+  "MAX_LINEA12": {
+   "mediana": 4798.86,
+   "p01": 300.0,
+   "p99": 153682.72879999987,
+   "pct_faltante": 0.31371706758304696
+  },
+  "MESES_ANT_RCC": {
+   "mediana": 103.0,
+   "p01": 3.0,
+   "p99": 116.0,
+   "pct_faltante": 0.0
+  },
+  "D12_MAXD": {
+   "mediana": 0.727836269614547,
+   "p01": 0.0,
+   "p99": 1.0,
+   "pct_faltante": 0.020348097238131604
+  },
+  "CONTAR_COMP": {
+   "mediana": 12.0,
+   "p01": 0.0,
+   "p99": 12.0,
+   "pct_faltante": 0.0
+  },
+  "MAX_GARAN_SALDO6": {
+   "mediana": 1.14429184263909,
+   "p01": 5.26806010727627e-05,
+   "p99": 31.362407121702297,
+   "pct_faltante": 0.6444094438080692
+  },
+  "INT_SALDO": {
+   "mediana": 0.0151620720517806,
+   "p01": 0.0002316015207273262,
+   "p99": 0.12479888477650394,
+   "pct_faltante": 0.17987145220822195
+  },
+  "Max_DismCONS": {
+   "mediana": 3.0,
+   "p01": 0.0,
+   "p99": 11.0,
+   "pct_faltante": 0.0
+  },
+  "MAX_RATIO_PRES6": {
+   "mediana": 0.406359789579185,
+   "p01": 0.0,
+   "p99": 1.0,
+   "pct_faltante": 0.03072101310932926
+  },
+  "PROMDIR_IND12": {
+   "mediana": 0.583458451988922,
+   "p01": 0.012177934625866344,
+   "p99": 1.000000001146997,
+   "pct_faltante": 0.020348097238131604
+  },
+  "FLAG_TENENCIA_VEHICULAR": {
+   "mediana": 0.0,
+   "p01": 0.0,
+   "p99": 1.0,
+   "pct_faltante": 0.0
+  },
+  "DIF_BUE_MAL6": {
+   "mediana": 6.0,
+   "p01": 0.0,
+   "p99": 6.0,
+   "pct_faltante": 0.004709176530482372
+  },
+  "PROM3_PROM6": {
+   "mediana": 0.9877861378247674,
+   "p01": 0.25668548806200314,
+   "p99": 1.8423011990841633,
+   "pct_faltante": 0.042796232658775614
+  }
+ }
+}

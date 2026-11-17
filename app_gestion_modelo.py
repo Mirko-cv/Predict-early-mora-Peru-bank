@@ -6,11 +6,10 @@ no lee la base original ni ningún otro archivo de datos.
 
     streamlit run app_gestion_modelo.py
 
-Requisitos: streamlit, pandas, numpy, altair, pyarrow y optbinning (solo para el simulador, que
-vuelve a aplicar el binning guardado en modelo.pkl).
+Requisitos: solo streamlit (trae pandas, numpy, altair y pyarrow). El simulador usa scorecard.json,
+el scorecard en formato plano, así que no necesita optbinning ni el pickle.
 """
 import json
-import pickle
 from pathlib import Path
 
 import altair as alt
@@ -176,9 +175,22 @@ def _json(ruta):
     raise ValueError(ruta)
 
 
-@st.cache_resource(show_spinner="Cargando modelo…")
+@st.cache_resource(show_spinner="Cargando scorecard…")
 def cargar_modelo():
-    return pickle.load(open(EXPORT / "modelo.pkl", "rb"))
+    return _json(EXPORT / "scorecard.json")
+
+
+def puntos_de(var, x):
+    """Puntos que aporta el valor x de una variable, con los cortes exactos del binning."""
+    d = MOD["variables"][var]
+    if x is None or (isinstance(x, float) and np.isnan(x)):
+        return d["puntos_missing"]
+    if d["tipo"] == "numerical":
+        return d["puntos"][int(np.searchsorted(d["cortes"], x, side="right"))]
+    for i, grupo in enumerate(d["categorias"]):
+        if str(x) in grupo:
+            return d["puntos"][i]
+    return d["puntos_missing"]
 
 
 @st.cache_data(show_spinner="Cargando resultados…")
@@ -441,15 +453,12 @@ def pag_corte():
 
 
 def pag_simulador():
-    seccion("Simulador", "Puntuar un cliente", "Usa el binning y los coeficientes guardados en modelo.pkl. "
+    seccion("Simulador", "Puntuar un cliente", "Aplica la tabla de puntos exportada (scorecard.json). "
             "“Sin dato” cae en el tramo Missing, igual que en el modelo.")
-    try:
-        MOD = cargar_modelo()
-    except Exception as e:  # optbinning no instalado o versión incompatible
-        st.warning(f"No se pudo cargar modelo.pkl ({type(e).__name__}). Instala optbinning en la misma versión del notebook.")
-        return
-    SEL, COEF, ESC = MOD["seleccion"], MOD["coeficientes"], MOD["escala"]
-    F, O, N = ESC["factor"], ESC["offset"], len(SEL)
+    global MOD
+    MOD = cargar_modelo()
+    SEL, ESC = MOD["seleccion"], MOD["escala"]
+    F, O = ESC["factor"], ESC["offset"]
 
     if st.button("Restablecer a cliente típico"):
         for k in [k for k in st.session_state if k.startswith(("s_", "n_", "na_"))]:
@@ -471,17 +480,11 @@ def pag_simulador():
                     st.toggle("sin dato", key=f"na_{v}", help=f"{r['pct_faltante']:.0%} de la cartera no tiene este dato")
                     valores[v] = np.nan if sin else x
 
-    d = pd.DataFrame([valores])
-    W = {}
-    for v in SEL:
-        b = MOD["bins"][v]
-        x = d[v].values if b.dtype == "numerical" else d[v].astype(object).where(d[v].notna(), None).values
-        W[v] = float(b.transform(x, metric="woe", metric_missing="empirical", metric_special="empirical")[0])
-    pts = {v: -(COEF[v] * W[v] + COEF["const"] / N) * F + O / N for v in SEL}
+    pts = {v: puntos_de(v, valores[v]) for v in SEL}
     score = sum(pts.values())
     pd_ = 1 / (1 + np.exp((score - O) / F))
     banda = pd.cut([score], [-np.inf, *MOD["cortes_banda"], np.inf], labels=MOD["etiquetas_banda"])[0]
-    base = O / N - (COEF["const"] / N) * F
+    base = MOD["puntos_neutro"]          # lo que aporta una variable con WoE = 0 (cliente neutro)
     grid([kpi("Score", f"{score:.0f}", "", None, "dark"),
           kpi("PD estimada", f"{pd_:.2%}", "nivel de desarrollo"),
           kpi("Banda", str(banda), "alertar" if banda in BANDAS[:2] else "sin gestión",
