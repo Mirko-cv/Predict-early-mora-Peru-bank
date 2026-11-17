@@ -1,56 +1,179 @@
 """
-Aplicativo de gestión del modelo — Scorecard early de morosidad
-===============================================================
-Explora el resultado del modelo final, monitorea su salud y puntúa clientes nuevos.
+Gestión del modelo · Scorecard early de morosidad
+=================================================
+Muestra EXCLUSIVAMENTE lo que deja la última celda del notebook en `modelo_export/`:
+no lee la base original ni ningún otro archivo de datos.
 
-Uso:   streamlit run app_gestion_modelo.py
-Lee la carpeta modelo_export/ que genera la última celda de modelo_early_morosidad.ipynb.
-Si el notebook se reejecuta con SAMPLE_FRAC = 1.0, el aplicativo refleja el nuevo modelo sin cambios.
+    streamlit run app_gestion_modelo.py
+
+Requisitos: streamlit, pandas, numpy, altair, pyarrow y optbinning (solo para el simulador, que
+vuelve a aplicar el binning guardado en modelo.pkl).
 """
 import json
 import pickle
 from pathlib import Path
 
+import altair as alt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 import streamlit as st
 
-# ─────────────────────────── Configuración ───────────────────────────
-RAIZ = Path(__file__).resolve().parent
-EXPORT = RAIZ / "modelo_export"
+# ═══════════════════════════════ Configuración ═══════════════════════════════
+EXPORT = Path(__file__).resolve().parent / "modelo_export"
+st.set_page_config(page_title="Gestión del modelo · Early morosidad", page_icon="◆", layout="wide")
 
-st.set_page_config(page_title="Gestión del modelo · Early morosidad", page_icon="📉", layout="wide")
+# Paleta del deck (inspirada en Ripley, no copiada)
+C = dict(plum="#2B1030", plum2="#3C1A42", plum3="#54285C", cream="#FAF6F8", cream2="#F1E7EE",
+         card="#FFFBFD", ink="#241026", soft="#6E5A71", mist="#E2CFE4", magenta="#A42A7F",
+         rose="#E0609A", amber="#C9821F", pale="#CE9BC2", line="#DCC9DD",
+         ok="#2E8F6B", warn="#C9821F", bad="#C0392B")
+SERIE = [C["magenta"], C["amber"], C["rose"], C["plum3"], C["pale"]]
+MODELOS_ORDEN = ["Scorecard", "Logit", "Árbol prof.4", "LightGBM"]
 
-CIRUELA, MAGENTA, ROSA, AMBAR, GRIS = "#2B1030", "#A42A7F", "#E0609A", "#C9821F", "#8aa6c1"
-plt.rcParams.update({"figure.dpi": 110, "axes.spines.top": False, "axes.spines.right": False,
-                     "font.size": 9, "axes.titleweight": "bold"})
-
-# Umbrales de monitoreo: verde / ámbar / rojo
-UMBRALES = {
-    "gini":    {"verde": 0.36, "ambar": 0.30, "mayor_mejor": True},
-    "ks":      {"verde": 0.30, "ambar": 0.25, "mayor_mejor": True},
-    "psi":     {"verde": 0.10, "ambar": 0.25, "mayor_mejor": False},
-    "calib":   {"verde": 0.10, "ambar": 0.25, "mayor_mejor": False},  # |obs/pred - 1|
-}
+# Umbrales de monitoreo (verde si cumple el primero, ámbar si cumple el segundo, rojo si no)
+UMBRALES = {"gini": (0.36, 0.30, True), "ks": (0.30, 0.25, True),
+            "psi": (0.10, 0.25, False), "calib": (0.10, 0.25, False)}
 
 
-def semaforo(valor, clave):
-    u = UMBRALES[clave]
-    if u["mayor_mejor"]:
-        return ("🟢", "verde") if valor >= u["verde"] else ("🟡", "ámbar") if valor >= u["ambar"] else ("🔴", "rojo")
-    return ("🟢", "verde") if valor < u["verde"] else ("🟡", "ámbar") if valor < u["ambar"] else ("🔴", "rojo")
+def estado(valor, clave):
+    v, a, mayor = UMBRALES[clave]
+    if mayor:
+        return "ok" if valor >= v else "warn" if valor >= a else "bad"
+    return "ok" if valor < v else "warn" if valor < a else "bad"
 
 
-# ─────────────────────────── Carga ───────────────────────────
-def _leer_json(ruta):
-    """El JSON se escribe en utf-8; si viene de una corrida anterior en Windows puede estar en cp1252."""
+ETIQ_ESTADO = {"ok": "Estable", "warn": "Vigilar", "bad": "Alerta"}
+
+# ═══════════════════════════════ Estilo ═══════════════════════════════
+st.markdown(f"""
+<style>
+:root {{
+  --plum:{C['plum']}; --plum2:{C['plum2']}; --cream:{C['cream']}; --cream2:{C['cream2']}; --card:{C['card']};
+  --ink:{C['ink']}; --soft:{C['soft']}; --magenta:{C['magenta']}; --rose:{C['rose']}; --amber:{C['amber']};
+  --line:{C['line']}; --ok:{C['ok']}; --warn:{C['warn']}; --bad:{C['bad']};
+  --r-md: 8px; --sh-s: 0 1px 2px rgba(43,16,48,.06), 0 1px 3px rgba(43,16,48,.10);
+}}
+.stApp {{ background: var(--cream); color: var(--ink); }}
+.block-container {{ padding-top: 3.6rem; max-width: 1280px; }}
+[data-testid="stHeader"] {{ background: rgba(250,246,248,.85); backdrop-filter: blur(6px); }}
+h1, h2, h3, h4 {{ color: var(--ink); letter-spacing: -.01em; }}
+[data-testid="stSidebar"] {{ background: var(--plum); }}
+[data-testid="stSidebar"] * {{ color: {C['mist']} !important; }}
+
+/* Hero */
+.hero {{ background: linear-gradient(120deg, var(--plum) 0%, var(--plum2) 60%, {C['plum3']} 100%);
+  border-radius: var(--r-md); box-shadow: var(--sh-s); padding: 22px 26px; margin-bottom: 14px; color: {C['mist']}; }}
+.hero .eyebrow {{ color: var(--rose); font-size: .72rem; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }}
+.hero h1 {{ color: #FFF6FB; font-size: clamp(1.35rem, 2.6vw, 2rem); margin: 4px 0 6px; line-height: 1.15; }}
+.hero p {{ margin: 0; font-size: .92rem; color: {C['mist']}; max-width: 880px; }}
+.chips {{ display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }}
+.chip {{ font-size: .74rem; padding: 3px 10px; border-radius: 999px; border: 1px solid rgba(226,207,228,.35); color: #FFF6FB; }}
+.chip.solid {{ background: var(--magenta); border-color: var(--magenta); }}
+
+/* Encabezado de sección */
+.sec {{ margin: 22px 0 10px; }}
+.sec .eyebrow {{ color: var(--magenta); font-size: .7rem; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }}
+.sec h2 {{ font-size: clamp(1.1rem, 2vw, 1.4rem); margin: 2px 0 4px; }}
+.sec p {{ color: var(--soft); font-size: .88rem; margin: 0; max-width: 900px; }}
+
+/* Cards */
+.grid {{ display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin-bottom: 14px; }}
+.grid.wide {{ grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }}
+.card {{ background: var(--card); border: 1px solid var(--line); border-radius: var(--r-md);
+  box-shadow: var(--sh-s); padding: 14px 16px; }}
+.card.accent {{ border-left: 4px solid var(--magenta); }}
+.card.dark {{ background: var(--plum2); border-color: {C['plum3']}; color: {C['mist']}; }}
+.card.dark .kv {{ color: #FFF6FB; }}
+.k-lab {{ font-size: .74rem; color: var(--soft); text-transform: uppercase; letter-spacing: .06em; font-weight: 600; }}
+.kv {{ font-size: clamp(1.4rem, 2.4vw, 1.9rem); font-weight: 750; color: var(--ink); line-height: 1.1; margin: 6px 0 4px; }}
+.k-sub {{ font-size: .8rem; color: var(--soft); }}
+.badge {{ display: inline-block; font-size: .7rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; }}
+.badge.ok {{ background: rgba(46,143,107,.12); color: var(--ok); }}
+.badge.warn {{ background: rgba(201,130,31,.14); color: var(--warn); }}
+.badge.bad {{ background: rgba(192,57,43,.12); color: var(--bad); }}
+.badge.neutral {{ background: var(--cream2); color: var(--soft); }}
+.vname {{ font-weight: 700; font-size: .84rem; overflow-wrap: anywhere; }}
+.vfam {{ font-size: .74rem; color: var(--soft); margin-bottom: 8px; }}
+.bar {{ height: 6px; background: var(--cream2); border-radius: 999px; overflow: hidden; margin: 6px 0 8px; }}
+.bar > span {{ display: block; height: 100%; background: var(--magenta); border-radius: 999px; }}
+.row {{ display: flex; justify-content: space-between; font-size: .78rem; color: var(--soft); }}
+.note {{ font-size: .86rem; color: var(--ink); line-height: 1.45; }}
+.note b {{ color: var(--magenta); }}
+
+/* Contenedores nativos con borde = cards */
+[data-testid="stVerticalBlockBorderWrapper"] {{ background: var(--card); border-radius: var(--r-md) !important;
+  border-color: var(--line) !important; box-shadow: var(--sh-s); }}
+
+/* Botones */
+.stButton > button, .stDownloadButton > button {{ border-radius: var(--r-md); border: 1px solid var(--line);
+  box-shadow: var(--sh-s); font-weight: 600; }}
+.stButton > button[kind="primary"] {{ background: var(--magenta); border-color: var(--magenta); color: #fff; }}
+.stButton > button:hover {{ border-color: var(--magenta); color: var(--magenta); }}
+.stButton > button[kind="primary"]:hover {{ background: {C['plum3']}; color: #fff; }}
+[data-testid="stMetric"] {{ background: var(--card); border: 1px solid var(--line); border-radius: var(--r-md);
+  box-shadow: var(--sh-s); padding: 10px 14px; }}
+
+button[data-selected="true"], button[aria-checked="true"][role="radio"] {{
+  background: var(--magenta) !important; border-color: var(--magenta) !important; color: #fff !important; }}
+button[data-selected="true"] *, button[aria-checked="true"][role="radio"] * {{ color: #fff !important; }}
+[data-baseweb="slider"] [role="slider"] {{ background: var(--magenta) !important; }}
+[data-testid="stSidebar"] code {{ background: var(--plum2); color: #FFF6FB !important; }}
+
+@media (max-width: 640px) {{
+  .hero {{ padding: 16px; }}
+  .block-container {{ padding-left: .8rem; padding-right: .8rem; }}
+}}
+</style>
+""", unsafe_allow_html=True)
+
+
+def tema_altair():
+    return {"config": {
+        "background": "transparent", "view": {"stroke": None},
+        "font": "Inter, system-ui, sans-serif",
+        "axis": {"labelColor": C["soft"], "titleColor": C["soft"], "gridColor": C["cream2"],
+                 "domainColor": C["line"], "tickColor": C["line"], "labelFontSize": 11, "titleFontSize": 11},
+        "legend": {"labelColor": C["ink"], "titleColor": C["soft"], "orient": "bottom"},
+        "range": {"category": SERIE},
+        "title": {"color": C["ink"], "fontSize": 13, "anchor": "start", "fontWeight": 700}}}
+
+
+alt.themes.register("ripley", tema_altair)
+alt.themes.enable("ripley")
+
+
+# ═══════════════════════════════ Componentes ═══════════════════════════════
+def html(s):
+    st.markdown(s, unsafe_allow_html=True)
+
+
+def seccion(eyebrow, titulo, texto=""):
+    html(f'<div class="sec"><div class="eyebrow">{eyebrow}</div><h2>{titulo}</h2>'
+         f'{f"<p>{texto}</p>" if texto else ""}</div>')
+
+
+def kpi(lab, valor, sub="", est=None, clase=""):
+    badge = f'<span class="badge {est}">{ETIQ_ESTADO.get(est, est)}</span>' if est else ""
+    return (f'<div class="card {clase}"><div class="k-lab">{lab}</div><div class="kv">{valor}</div>'
+            f'<div class="k-sub">{badge} {sub}</div></div>')
+
+
+def grid(items, clase=""):
+    html(f'<div class="grid {clase}">{"".join(items)}</div>')
+
+
+def grafico(ch):
+    st.altair_chart(ch.properties(height=ch.to_dict().get("height", 280)), width="stretch")
+
+
+# ═══════════════════════════════ Carga (solo modelo_export/) ═══════════════════════════════
+def _json(ruta):
     for enc in ("utf-8", "cp1252"):
         try:
             return json.load(open(ruta, encoding=enc))
         except UnicodeDecodeError:
             continue
-    raise ValueError(f"No se pudo leer {ruta}")
+    raise ValueError(ruta)
 
 
 @st.cache_resource(show_spinner="Cargando modelo…")
@@ -59,637 +182,361 @@ def cargar_modelo():
 
 
 @st.cache_data(show_spinner="Cargando resultados…")
-def cargar_datos():
+def cargar():
     leer = lambda n, **kw: pd.read_csv(EXPORT / n, **kw)
-    return {
-        "clientes": pd.read_parquet(EXPORT / "clientes.parquet"),
-        "variables": leer("variables.csv", index_col=0),
-        "puntos": leer("puntos.csv"),
-        "metricas": leer("metricas.csv"),
-        "deciles": leer("deciles.csv", index_col=0),
-        "cortes": leer("cortes.csv"),
-        "psi_mensual": leer("psi_mensual.csv", index_col=0),
-        "psi_variables": leer("psi_variables.csv", index_col=0),
-        "reglas": leer("reglas.csv", index_col=0),
-        "auditoria": leer("auditoria_reglas.csv", index_col=0),
-        "matriz": leer("matriz_decision.csv", index_col=0),
-        "sensibilidad": leer("sensibilidad_decision.csv", index_col=0),
-        "politica": leer("politica.csv", index_col=0),
-        "gaps": leer("gap_folds.csv"),
-        "ficha": _leer_json(EXPORT / "ficha_modelo.json"),
-    }
+    puntos = leer("puntos.csv")
+    # exports de Windows + pandas 3 guardaron el atributo categórico como repr de un arreglo
+    puntos["atributo"] = (puntos["atributo"].astype(str)
+                          .str.replace(r"<ArrowStringArray>\n\[(.*?)\]\n.*", r"\1", regex=True)
+                          .str.replace("'", ""))
+    cli = pd.read_parquet(EXPORT / "clientes.parquet")
+    cli["banda"] = cli["banda"].astype(str)
+    met = leer("metricas.csv")
+    met[["Modelo", "Muestra"]] = met["modelo"].str.split(" · ", expand=True)
+    return {"cli": cli, "vars": leer("variables.csv", index_col=0), "puntos": puntos, "met": met,
+            "deciles": leer("deciles.csv", index_col=0), "psi_mes": leer("psi_mensual.csv", index_col=0),
+            "psi_var": leer("psi_variables.csv", index_col=0), "reglas": leer("reglas.csv", index_col=0),
+            "auditoria": leer("auditoria_reglas.csv", index_col=0), "matriz": leer("matriz_decision.csv", index_col=0),
+            "sens": leer("sensibilidad_decision.csv", index_col=0), "politica": leer("politica.csv", index_col=0),
+            "gaps": leer("gap_folds.csv"), "ficha": _json(EXPORT / "ficha_modelo.json")}
 
 
 if not EXPORT.exists():
-    st.error(f"No encuentro la carpeta `{EXPORT.name}/`. Ejecuta la última celda del notebook "
-             f"`modelo_early_morosidad.ipynb` para generarla.")
+    st.error("No encuentro `modelo_export/` junto a este archivo. Ejecuta la última celda del notebook para generarla.")
     st.stop()
 
-MOD, D = cargar_modelo(), cargar_datos()
-SEL = MOD["seleccion"]
-COEF, ESCALA = MOD["coeficientes"], MOD["escala"]
-FACTOR, OFFSET, N_V = ESCALA["factor"], ESCALA["offset"], len(SEL)
-CATS, NIVELES, RANGOS = MOD["categoricas"], MOD["niveles"], MOD["rangos"]
-BANDAS, CORTES_BANDA = MOD["etiquetas_banda"], MOD["cortes_banda"]
-CLI = D["clientes"]
+D = cargar()
+CLI, FICHA, VARS = D["cli"], D["ficha"], D["vars"]
+OOT = CLI[CLI.split == "OOT"]
+BANDAS = ["E · muy alto", "D · alto", "C · medio", "B · bajo", "A · muy bajo"]
 
 
-# ─────────────────────────── Motor de scoring ───────────────────────────
-def a_woe(d):
-    """Aplica el binning guardado y devuelve la matriz WoE de las variables del modelo."""
-    out = {}
-    for v in SEL:
-        b = MOD["bins"][v]
-        x = d[v].values if b.dtype == "numerical" else d[v].astype(object).where(d[v].notna(), None).values
-        out[v] = b.transform(x, metric="woe", metric_missing="empirical", metric_special="empirical")
-    return pd.DataFrame(out, index=d.index)
-
-
-def puntuar(d):
-    """Devuelve PD, score, banda y los puntos que aporta cada variable."""
-    W = a_woe(d)
-    pts = pd.DataFrame({v: -(COEF[v] * W[v] + COEF["const"] / N_V) * FACTOR + OFFSET / N_V for v in SEL},
-                       index=d.index)
-    r = pd.DataFrame(index=d.index)
-    r["score"] = pts.sum(axis=1)
-    odds = np.exp((r["score"] - OFFSET) / FACTOR)
-    r["PD"] = 1 / (1 + odds)
-    r["banda"] = pd.cut(r["score"], [-np.inf, *CORTES_BANDA, np.inf], labels=BANDAS)
-    return r, pts, W
-
-
-PUNTOS_BASE = OFFSET / N_V - (COEF["const"] / N_V) * FACTOR      # puntos de un cliente con WoE = 0
-
-
-def psi(esperado, actual, cortes=None):
-    e, a = np.asarray(pd.Series(esperado).dropna()), np.asarray(pd.Series(actual).dropna())
-    if cortes is None:
-        cortes = np.unique(np.quantile(e, np.linspace(0, 1, 11)))
-        cortes[0], cortes[-1] = -np.inf, np.inf
-    pe = np.clip(np.histogram(e, cortes)[0] / len(e), 1e-4, None)
-    pa = np.clip(np.histogram(a, cortes)[0] / len(a), 1e-4, None)
-    return float(np.sum((pa - pe) * np.log(pa / pe)))
-
-
-def limpiar_como_base(df):
-    """Replica la limpieza del notebook para un CSV cargado por el usuario."""
-    df = df.copy()
-    for c in CATS:
-        if c in df.columns:
-            df[c] = df[c].astype(str).str.strip().replace({"": np.nan, "nan": np.nan, "None": np.nan})
-    for v in SEL:
-        if v not in CATS and v in df.columns:
-            df[v] = pd.to_numeric(df[v], errors="coerce")
-    return df
-
-
-def metrica_de(nombre_fila, col):
-    f = D["metricas"][D["metricas"].modelo == nombre_fila]
+def met(modelo, muestra, col):
+    f = D["met"][(D["met"].Modelo == modelo) & (D["met"].Muestra == muestra)]
     return float(f[col].iloc[0]) if len(f) else np.nan
 
 
-# ═══════════════════════════ PÁGINAS ═══════════════════════════
-def pag_salud():
-    st.title("📉 Salud del modelo")
-    st.caption(f"{D['ficha']['nombre']} · versión {D['ficha']['version']} · "
-               f"{D['ficha']['n_variables']} variables · desarrollo {D['ficha']['ventana_desarrollo']} · "
-               f"fuera de tiempo {D['ficha']['ventana_oot']}")
+def captura(df, pct):
+    corte = df.score.quantile(pct)
+    return df.bad[df.score <= corte].sum() / df.bad.sum()
 
-    gini_oot = D["ficha"]["gini"]["OOT"]
-    ks_oot = D["ficha"]["ks_oot"]
-    psi_oot = D["ficha"]["psi_score_oot"]
-    calib = D["ficha"]["calibracion_oot_obs_pred"]
 
-    st.subheader("Indicadores con semáforo")
-    c = st.columns(4)
-    for col, (titulo, valor, clave, fmt, ayuda) in zip(c, [
-            ("Gini fuera de tiempo", gini_oot, "gini", "{:.3f}", "Capacidad de ordenar. Verde ≥ 0.36, rojo < 0.30."),
-            ("KS fuera de tiempo", ks_oot, "ks", "{:.3f}", "Máxima separación entre acumuladas. Verde ≥ 0.30."),
-            ("PSI del score", psi_oot, "psi", "{:.3f}", "Estabilidad de la población. Verde < 0.10, rojo > 0.25."),
-            ("Calibración obs/pred", calib, "calib", "{:.3f}", "1.0 sería perfecto. Se evalúa |obs/pred − 1|.")]):
-        v = abs(valor - 1) if clave == "calib" else valor
-        icono, etiqueta = semaforo(v, clave)
-        col.metric(f"{icono} {titulo}", fmt.format(valor), etiqueta, delta_color="off", help=ayuda)
+# ═══════════════════════════════ Páginas ═══════════════════════════════
+def pag_resumen():
+    g = FICHA["gini"]
+    calib = FICHA["calibracion_oot_obs_pred"]
+    html(f"""<div class="hero"><div class="eyebrow">Scorecard early de morosidad · v{FICHA.get('version', '')}</div>
+      <h1>El modelo ordena bien fuera de tiempo; el nivel de PD requiere recalibración</h1>
+      <p>{FICHA['n_variables']} variables de buró, WoE + regresión logística. Desarrollo {FICHA['ventana_desarrollo']},
+      validación fuera de tiempo {FICHA['ventana_oot']} sobre {len(OOT):,} clientes.</p>
+      <div class="chips"><span class="chip solid">Champion: Scorecard</span><span class="chip">Challenger: LightGBM</span>
+      <span class="chip">Reglas: {', '.join(FICHA['reglas_aplicadas'])}</span>
+      <span class="chip">SAMPLE_FRAC = {FICHA['sample_frac']}</span></div></div>""")
 
-    st.divider()
-    izq, der = st.columns([1.3, 1])
-    with izq:
-        st.subheader("Diagnóstico")
-        if abs(calib - 1) >= UMBRALES["calib"]["verde"]:
-            st.warning(f"**Calibración fuera de rango.** El modelo predice una PD media de "
-                       f"{metrica_de('Scorecard · OOT', 'PD_media'):.2%} y la mora observada fue "
-                       f"{metrica_de('Scorecard · OOT', 'Tasa_real'):.2%} (ratio {calib:.2f}). "
-                       f"Ordena bien pero subestima el nivel: afecta cualquier uso de la PD para provisiones "
-                       f"o precios, no al ranking ni a las bandas. **Acción:** recalibrar el intercepto con la "
-                       f"ventana más reciente.")
-        peor = D["psi_variables"].PSI.idxmax()
-        valor_peor = D["psi_variables"].PSI.max()
-        icono, _ = semaforo(valor_peor, "psi")
-        st.info(f"**Variable menos estable:** {icono} `{peor}` con PSI {valor_peor:.3f}. "
-                f"{'Dentro de rango.' if valor_peor < 0.10 else 'Vigilar la composición de la cartera.'}")
-        st.success(f"**Sin sobreajuste.** El gap entre entrenamiento y validación del scorecard es "
-                   f"{D['gaps'].query('Modelo == \"Scorecard\"').Gap_AUC.mean():.4f} de AUC, "
-                   f"frente a {D['gaps'].query('Modelo == \"LightGBM\"').Gap_AUC.mean():.4f} del challenger.")
-    with der:
-        st.subheader("Gini por muestra")
-        g = pd.Series(D["ficha"]["gini"])
-        fig, ax = plt.subplots(figsize=(4.2, 2.8))
-        g.plot.bar(ax=ax, color=[GRIS, MAGENTA, AMBAR])
-        ax.axhline(0.36, ls="--", c="green", lw=.8); ax.axhline(0.30, ls="--", c="red", lw=.8)
-        ax.set_ylim(0, max(0.5, g.max() * 1.2)); ax.tick_params(axis="x", rotation=0)
-        ax.set_title("Líneas: umbrales de monitoreo")
-        st.pyplot(fig, width="stretch")
+    grid([kpi("Gini fuera de tiempo", f"{g['OOT']:.3f}", f"TRAIN {g['TRAIN']:.3f} · TEST {g['TEST']:.3f}", estado(g["OOT"], "gini"), "accent"),
+          kpi("KS fuera de tiempo", f"{FICHA['ks_oot']:.3f}", "umbral 0.25", estado(FICHA["ks_oot"], "ks")),
+          kpi("PSI del score", f"{FICHA['psi_score_oot']:.3f}", "TRAIN → OOT", estado(FICHA["psi_score_oot"], "psi")),
+          kpi("Calibración obs/pred", f"{calib:.2f}", "1.00 = perfecto", estado(abs(calib - 1), "calib")),
+          kpi("Mora capturada", f"{captura(OOT, .2):.0%}", "alertando al 20% peor"),
+          kpi("Ventaja del challenger", f"{FICHA['challenger_gini_oot'] - g['OOT']:+.3f}", "Gini OOT de LightGBM")], "wide")
 
-    st.divider()
-    st.subheader("Comparación con el challenger")
-    st.dataframe(D["metricas"].set_index("modelo").style.format("{:.4f}"), width="stretch")
+    seccion("Lectura", "Qué dice el tablero")
+    c1, c2 = st.columns([1.15, 1])
+    with c1:
+        d = D["met"][D["met"].Modelo.isin(MODELOS_ORDEN)].assign(Gini=lambda x: x.Gini.round(3))
+        grafico(alt.Chart(d).mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3).encode(
+            x=alt.X("Modelo:N", sort=MODELOS_ORDEN, title=None, axis=alt.Axis(labelAngle=0)),
+            xOffset=alt.XOffset("Muestra:N", sort=["TRAIN", "TEST", "OOT"]),
+            y=alt.Y("Gini:Q"),
+            color=alt.Color("Muestra:N", sort=["TRAIN", "TEST", "OOT"], title=None,
+                            scale=alt.Scale(range=[C["pale"], C["magenta"], C["amber"]])),
+            tooltip=["Modelo", "Muestra", "Gini"]).properties(height=240, title="Gini por modelo y muestra"))
+    with c2:
+        mora = (OOT.groupby("banda").bad.agg(["size", "mean"]).reindex(BANDAS).reset_index()
+                .rename(columns={"size": "clientes", "mean": "mora"}))
+        ch = alt.Chart(mora).mark_bar(cornerRadiusEnd=3).encode(
+            y=alt.Y("banda:N", sort=BANDAS, title=None), x=alt.X("mora:Q", axis=alt.Axis(format="%"), title="mora observada"),
+            color=alt.Color("banda:N", sort=BANDAS, legend=None,
+                            scale=alt.Scale(range=[C["magenta"], C["rose"], C["pale"], C["line"], C["cream2"]])),
+            tooltip=["banda", "clientes", alt.Tooltip("mora:Q", format=".2%")]
+        ).properties(height=220, title="Mora por banda · fuera de tiempo")
+        grafico(ch)
+
+    html(f"""<div class="grid wide">
+      <div class="card accent note"><b>Discrimina igual fuera de tiempo.</b> El Gini se mueve menos de un punto entre
+      entrenamiento, prueba y OOT: no hay sobreajuste y el ordenamiento se sostiene en meses que el modelo no vio.</div>
+      <div class="card accent note"><b>Subestima el nivel.</b> La mora real OOT supera a la predicha en un {calib - 1:.0%}.
+      Es un cambio de nivel de la cartera, no de forma: no afecta bandas ni alertas, sí cualquier uso de la PD como número.</div>
+      <div class="card accent note"><b>LightGBM es challenger, no champion.</b> Gana {FICHA['challenger_gini_oot'] - g['OOT']:.3f} de Gini,
+      pero con una brecha entre entrenamiento y prueba mucho mayor y sin tabla de puntos explicable.</div></div>""")
 
 
 def pag_variables():
-    st.title("🔍 Explorador de variables del modelo")
-    st.caption("Las variables que quedaron en el scorecard final, con todo lo que define su comportamiento.")
+    seccion("Variables del modelo", f"{len(VARS)} variables, {VARS.familia.nunique()} dimensiones de riesgo",
+            "Peso = rango de puntos que la variable puede sumar o restar. PSI = estabilidad TRAIN → OOT.")
+    vmax = VARS.peso_puntos.max()
+    tarjetas = []
+    for v, r in VARS.sort_values("peso_puntos", ascending=False).iterrows():
+        e = estado(r.PSI_TRAIN_OOT, "psi")
+        tarjetas.append(f"""<div class="card"><div class="vname">{v}</div><div class="vfam">{r.familia}</div>
+          <div class="row"><span>Peso</span><b style="color:{C['ink']}">{r.peso_puntos:.1f} pts</b></div>
+          <div class="bar"><span style="width:{r.peso_puntos / vmax * 100:.0f}%"></span></div>
+          <div class="row"><span>IV {r.IV:.3f}</span><span>VIF {r.VIF:.2f}</span></div>
+          <div class="row" style="margin-top:4px"><span>faltante {r.pct_faltante:.0%}</span>
+          <span class="badge {e}">PSI {r.PSI_TRAIN_OOT:.3f}</span></div></div>""")
+    grid(tarjetas)
 
-    fichas = D["variables"].copy()
-    fichas["semáforo PSI"] = [semaforo(x, "psi")[0] for x in fichas.PSI_TRAIN_OOT]
-    st.dataframe(
-        fichas[["familia", "peso_puntos", "IV", "PSI_TRAIN_OOT", "semáforo PSI", "pct_faltante",
-                "coeficiente", "p_valor", "VIF"]]
-        .sort_values("peso_puntos", ascending=False)
-        .style.format({"peso_puntos": "{:.1f}", "IV": "{:.4f}", "PSI_TRAIN_OOT": "{:.4f}",
-                       "pct_faltante": "{:.1%}", "coeficiente": "{:.4f}", "p_valor": "{:.4f}", "VIF": "{:.2f}"}),
-        width="stretch")
-
-    c1, c2 = st.columns([1, 1])
-    with c1:
-        fig, ax = plt.subplots(figsize=(5.5, 3.6))
-        p = fichas.peso_puntos.sort_values()
-        colores = [ROSA if f == "Perfil del cliente" else MAGENTA for f in fichas.loc[p.index, "familia"]]
-        p.plot.barh(ax=ax, color=colores)
-        ax.set_title("Peso de cada variable (rango de puntos)\nrosado = variable de perfil")
-        ax.set_ylabel("")
-        st.pyplot(fig, width="stretch")
-    with c2:
-        fig, ax = plt.subplots(figsize=(5.5, 3.6))
-        fichas.groupby("familia").peso_puntos.sum().sort_values().plot.barh(ax=ax, color=CIRUELA)
-        ax.set_title("Peso agregado por dimensión de riesgo"); ax.set_ylabel("")
-        st.pyplot(fig, width="stretch")
-
-    st.divider()
-    v = st.selectbox("Variable a inspeccionar", fichas.sort_values("peso_puntos", ascending=False).index)
-    f = fichas.loc[v]
-
-    k = st.columns(5)
-    k[0].metric("Dimensión", f.familia)
-    k[1].metric("Peso", f"{f.peso_puntos:.1f} pts")
-    k[2].metric("IV", f"{f.IV:.4f}")
-    k[3].metric(f"{semaforo(f.PSI_TRAIN_OOT, 'psi')[0]} PSI", f"{f.PSI_TRAIN_OOT:.4f}")
-    k[4].metric("Sin dato", f"{f.pct_faltante:.1%}")
-
+    seccion("Detalle", "Tramos, tasa de malos y puntos")
+    orden = VARS.sort_values("peso_puntos", ascending=False).index.tolist()
+    v = st.pills("Variable", orden, default=orden[0], label_visibility="collapsed") or orden[0]
     t = D["puntos"][D["puntos"].variable == v].reset_index(drop=True)
-    t["atributo"] = t["atributo"].astype(str).str.replace(r"<ArrowStringArray>\n\[(.*?)\]\n.*", r"\1", regex=True)
-    izq, der = st.columns([1.1, 1])
-    with izq:
-        st.markdown("**Tramos del binning y puntos que otorga cada uno**")
-        st.dataframe(t.drop(columns="variable").style.format(
-            {"%clientes": "{:.1%}", "tasa_malos": "{:.2%}", "WoE": "{:.4f}", "puntos": "{:.1f}"}),
-            width="stretch", hide_index=True)
-    with der:
-        fig, ax = plt.subplots(figsize=(5.4, 3.2))
-        x = range(len(t))
-        ax.bar(x, t.tasa_malos * 100, color=MAGENTA, label="% malos del tramo")
-        ax2 = ax.twinx()
-        ax2.plot(x, t.puntos, color=AMBAR, marker="o", lw=2, label="puntos")
-        ax.set_xticks(list(x)); ax.set_xticklabels(t.atributo.astype(str), rotation=30, ha="right", fontsize=7)
-        ax.set_ylabel("% malos"); ax2.set_ylabel("puntos"); ax2.grid(False)
-        ax.set_title(f"{v}: riesgo y puntaje por tramo")
-        fig.legend(loc="upper right", fontsize=7)
-        st.pyplot(fig, width="stretch")
-        st.caption("A más riesgo en el tramo, menos puntos. Si la relación se invierte, el binning hay que revisarlo.")
-
-    col = "pts_" + v
-    if col in CLI.columns:
-        st.markdown("**Cómo se reparten los puntos de esta variable en la cartera**")
-        a, b = st.columns([1, 1])
-        with a:
-            fig, ax = plt.subplots(figsize=(5.2, 2.6))
-            for s, c_ in (("TRAIN", GRIS), ("OOT", AMBAR)):
-                ax.hist(CLI[CLI.split == s][col], bins=30, alpha=.6, density=True, color=c_, label=s)
-            ax.legend(fontsize=8); ax.set_title("Distribución de puntos: desarrollo vs fuera de tiempo")
-            st.pyplot(fig, width="stretch")
-        with b:
-            r = CLI.groupby("split")[col].agg(["mean", "std", "min", "max"]).round(2)
-            st.dataframe(r, width="stretch")
-            st.caption("Si la media se desplaza entre desarrollo y fuera de tiempo, la variable está cambiando "
-                       "de composición: es la señal que anticipa un PSI alto.")
+    t["orden"] = range(len(t))
+    r = VARS.loc[v]
+    grid([kpi("Familia", r.familia.split(":")[0], r.familia),
+          kpi("Information Value", f"{r.IV:.3f}"),
+          kpi("Coeficiente", f"{r.coeficiente:.3f}", f"p = {r.p_valor:.1e}"),
+          kpi("PSI TRAIN → OOT", f"{r.PSI_TRAIN_OOT:.3f}", "", estado(r.PSI_TRAIN_OOT, "psi"))])
+    c1, c2 = st.columns(2)
+    base = alt.Chart(t).encode(x=alt.X("atributo:N", sort=alt.SortField("orden"), title=None, axis=alt.Axis(labelAngle=-30, labelLimit=140)))
+    with c1:
+        grafico((base.mark_bar(color=C["magenta"], cornerRadiusTopLeft=3, cornerRadiusTopRight=3).encode(
+            y=alt.Y("tasa_malos:Q", axis=alt.Axis(format="%"), title="tasa de malos"),
+            tooltip=["atributo", "n", alt.Tooltip("tasa_malos:Q", format=".2%")])
+            + base.mark_rule(color=C["amber"], strokeDash=[4, 3]).encode(y=alt.datum(float((t.tasa_malos * t.n).sum() / t.n.sum()))))
+            .properties(height=260, title="Tasa de malos por tramo (línea = promedio)"))
+    with c2:
+        grafico(base.mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3).encode(
+            y=alt.Y("puntos:Q", scale=alt.Scale(zero=False), title="puntos"),
+            color=alt.Color("puntos:Q", scale=alt.Scale(range=[C["pale"], C["plum"]]), legend=None),
+            tooltip=["atributo", "puntos", alt.Tooltip("WoE:Q", format=".3f")]).properties(height=260, title="Puntos que aporta cada tramo"))
+    with st.expander("Tabla de puntos"):
+        st.dataframe(t.drop(columns=["variable", "orden"]).style.format(
+            {"n": "{:,}", "%clientes": "{:.1%}", "tasa_malos": "{:.2%}", "WoE": "{:.3f}", "puntos": "{:.1f}"}),
+            hide_index=True, width="stretch")
 
 
 def pag_desempeno():
-    st.title("Desempeño")
-    muestra = st.radio("Muestra", ["TEST", "OOT"], horizontal=True, index=1)
-    d = CLI[CLI.split == muestra]
-
-    k = st.columns(4)
-    k[0].metric("Clientes", f"{len(d):,}")
-    k[1].metric("Mora observada", f"{d.bad.mean():.2%}")
-    k[2].metric("Gini", f"{metrica_de(f'Scorecard · {muestra}', 'Gini'):.4f}")
-    k[3].metric("KS", f"{metrica_de(f'Scorecard · {muestra}', 'KS'):.4f}")
+    seccion("Desempeño", "Cuatro modelos, tres muestras", "Gini, KS y Average Precision no dependen de un corte; "
+            "Recall/Precision/F1 se miden alertando al 20% de mayor PD.")
+    muestra = st.segmented_control("Muestra", ["TRAIN", "TEST", "OOT"], default="OOT") or "OOT"
+    t = (D["met"][D["met"].Muestra == muestra].set_index("Modelo").reindex(MODELOS_ORDEN)
+         .drop(columns=["modelo", "Muestra"]))
+    grid([kpi(m, f"{t.loc[m, 'Gini']:.3f}", f"KS {t.loc[m, 'KS']:.3f} · AP {t.loc[m, 'AveragePrecision']:.3f}",
+              estado(t.loc[m, "Gini"], "gini"), "accent" if m == "Scorecard" else "") for m in MODELOS_ORDEN])
+    with st.container(border=True):
+        st.dataframe(t.style.format({"n": "{:,}", **{c: "{:.4f}" for c in t.columns if c != "n"}})
+                     .highlight_max(subset=["Gini", "KS", "AveragePrecision"], color="#F3DCEB"),
+                     width="stretch")
 
     c1, c2 = st.columns(2)
     with c1:
-        fig, ax = plt.subplots(figsize=(5.2, 3.2))
-        ax.hist(d.score[d.bad == 0], bins=40, alpha=.6, density=True, color=GRIS, label="Buenos")
-        ax.hist(d.score[d.bad == 1], bins=40, alpha=.6, density=True, color=MAGENTA, label="Malos")
-        ax.legend(); ax.set_xlabel("Score (mayor = mejor cliente)")
-        ax.set_title(f"Distribución del score — {muestra}")
-        st.pyplot(fig, width="stretch")
+        dec = D["deciles"].reset_index()
+        b = alt.Chart(dec).encode(x=alt.X("decil:O", title="decil de score (1 = más riesgoso)", axis=alt.Axis(labelAngle=0)))
+        grafico(alt.layer(
+            b.mark_bar(color=C["magenta"], cornerRadiusTopLeft=3, cornerRadiusTopRight=3).encode(
+                y=alt.Y("tasa:Q", axis=alt.Axis(format="%"), title="mora del decil"), tooltip=["decil", alt.Tooltip("tasa:Q", format=".2%"), alt.Tooltip("lift:Q", format=".2f")]),
+            b.mark_line(color=C["amber"], point=True).encode(
+                y=alt.Y("%malos_acum:Q", axis=alt.Axis(format="%", titleColor=C["amber"]), title="malos acumulados"))
+        ).resolve_scale(y="independent").properties(height=280, title="Scorecard · deciles fuera de tiempo"))
     with c2:
-        dd = d.assign(decil=pd.qcut(d.score.rank(method="first"), 10, labels=range(10, 0, -1)))
-        t = dd.groupby("decil", observed=True).bad.mean().sort_index()
-        fig, ax = plt.subplots(figsize=(5.2, 3.2))
-        (t * 100).plot.bar(ax=ax, color=MAGENTA)
-        ax.axhline(d.bad.mean() * 100, ls="--", c=CIRUELA, lw=1)
-        ax.set_title(f"% malos por decil de riesgo — {muestra}\n(1 = más riesgo; línea = promedio)")
-        ax.set_xlabel("decil"); ax.tick_params(axis="x", rotation=0)
-        st.pyplot(fig, width="stretch")
-
-    st.subheader("Tabla de deciles (fuera de tiempo)")
-    st.dataframe(D["deciles"].style.format({"tasa": "{:.2%}", "%malos_acum": "{:.1%}", "lift": "{:.2f}"}),
-                 width="stretch")
-
-    st.subheader("Gini por mes")
-    g = (CLI[CLI.split != "TRAIN"].groupby("PERIODO")
-         .apply(lambda x: 2 * ((x.score.rank().corr(1 - x.bad, method="spearman") + 1) / 2) - 1
-                if x.bad.nunique() > 1 else np.nan, include_groups=False))
-    st.caption("Aproximación por correlación de rangos; el Gini exacto por muestra está arriba. "
-               "Cada mes tiene pocos malos, así que la serie oscila: las decisiones se toman con TEST y OOT agregados.")
-    fig, ax = plt.subplots(figsize=(9, 2.8))
-    g.plot(ax=ax, marker="o", color=MAGENTA); ax.set_xlabel(""); ax.set_title("Poder discriminante mensual")
-    st.pyplot(fig, width="stretch")
+        gp = D["gaps"]
+        grafico(alt.Chart(gp).mark_line(point=True).encode(
+            x=alt.X("Fold:O", axis=alt.Axis(labelAngle=0)), y=alt.Y("Gap_AUC:Q", title="AUC train − AUC validación"),
+            color=alt.Color("Modelo:N", scale=alt.Scale(range=[C["magenta"], C["amber"]])),
+            tooltip=["Modelo", "Fold", alt.Tooltip("Gap_AUC:Q", format=".4f")]
+        ).properties(height=280, title="Sobreajuste por fold (validación cruzada)"))
 
 
 def pag_estabilidad():
-    st.title("Estabilidad y monitoreo")
-    st.caption("El indicador que se revisa mes a mes. Verde < 0.10 · ámbar 0.10–0.25 · rojo > 0.25")
-
-    c1, c2 = st.columns([1.2, 1])
+    seccion("Monitoreo", "Estabilidad y calibración", "Semáforo PSI: < 0.10 estable · 0.10–0.25 vigilar · > 0.25 alerta.")
+    pm = D["psi_mes"].reset_index().rename(columns={"index": "periodo", D["psi_mes"].index.name or "index": "periodo"})
+    pm.columns = ["periodo", "PSI"]
+    pm["periodo"] = pm.periodo.astype(str)
+    pm["tramo"] = np.where(pm.periodo.isin(["202110", "202111"]), "OOT", "desarrollo")
+    calib = (CLI.groupby("PERIODO").agg(PD=("PD", "mean"), real=("bad", "mean")).reset_index()
+             .melt("PERIODO", var_name="serie", value_name="tasa").assign(PERIODO=lambda d: d.PERIODO.astype(str)))
+    oot_obs = OOT.bad.mean() / OOT.PD.mean()
+    grid([kpi("PSI máx. mensual", f"{pm.PSI.max():.3f}", f"en {pm.loc[pm.PSI.idxmax(), 'periodo']}", estado(pm.PSI.max(), "psi")),
+          kpi("PSI máx. variable", f"{D['psi_var'].PSI.max():.3f}", D["psi_var"].PSI.idxmax(), estado(D["psi_var"].PSI.max(), "psi")),
+          kpi("obs/pred OOT", f"{oot_obs:.2f}", f"real {OOT.bad.mean():.2%} · predicha {OOT.PD.mean():.2%}", estado(abs(oot_obs - 1), "calib"))])
+    c1, c2 = st.columns(2)
     with c1:
-        st.subheader("PSI del score por periodo")
-        p = D["psi_mensual"].iloc[:, 0]
-        fig, ax = plt.subplots(figsize=(6, 3.2))
-        colores = ["green" if x < .10 else AMBAR if x < .25 else "red" for x in p]
-        p.plot.bar(ax=ax, color=colores)
-        ax.axhline(.10, ls="--", c="green", lw=.8); ax.axhline(.25, ls="--", c="red", lw=.8)
-        ax.set_xlabel(""); ax.set_title("Contra la distribución de entrenamiento")
-        ax.tick_params(axis="x", rotation=45)
-        st.pyplot(fig, width="stretch")
+        reglas = alt.Chart(pd.DataFrame({"y": [.10, .25]})).mark_rule(strokeDash=[4, 3], color=C["soft"]).encode(y="y:Q")
+        grafico((alt.Chart(pm).mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3).encode(
+            x=alt.X("periodo:N", title=None, axis=alt.Axis(labelAngle=0)), y=alt.Y("PSI:Q", title="PSI del score vs TRAIN"),
+            color=alt.Color("tramo:N", scale=alt.Scale(range=[C["pale"], C["amber"]])),
+            tooltip=["periodo", alt.Tooltip("PSI:Q", format=".4f")]) + reglas).properties(height=270, title="PSI del score por mes"))
     with c2:
-        st.subheader("PSI por variable")
-        pv = D["psi_variables"].PSI.sort_values(ascending=False)
-        tabla = pv.to_frame("PSI")
-        tabla["semáforo"] = [semaforo(x, "psi")[0] for x in pv]
-        tabla["estado"] = [semaforo(x, "psi")[1] for x in pv]
-        st.dataframe(tabla.style.format({"PSI": "{:.4f}"}), width="stretch")
+        grafico(alt.Chart(calib).mark_line(point=True, strokeWidth=2.4).encode(
+            x=alt.X("PERIODO:N", title=None, axis=alt.Axis(labelAngle=0)),
+            y=alt.Y("tasa:Q", axis=alt.Axis(format="%"), title=None),
+            color=alt.Color("serie:N", scale=alt.Scale(domain=["PD", "real"], range=[C["magenta"], C["amber"]]),
+                            legend=alt.Legend(title=None, labelExpr="datum.label == 'PD' ? 'PD media predicha' : 'mora real'")),
+            tooltip=["PERIODO", "serie", alt.Tooltip("tasa:Q", format=".2%")]
+        ).properties(height=270, title="Calibración por mes: predicha vs real"))
 
-    st.subheader("Mezcla de la cartera por banda de riesgo")
-    mezcla = pd.crosstab(CLI.banda, CLI.split, normalize="columns").reindex(BANDAS[::-1]) * 100
-    c3, c4 = st.columns([1, 1])
-    with c3:
-        st.dataframe(mezcla.round(1).add_suffix(" (%)"), width="stretch")
-    with c4:
-        fig, ax = plt.subplots(figsize=(5.2, 3))
-        mezcla.plot.bar(ax=ax, color=[GRIS, ROSA, AMBAR])
-        ax.set_title("% de clientes por banda"); ax.set_xlabel(""); ax.tick_params(axis="x", rotation=20)
-        ax.legend(fontsize=8)
-        st.pyplot(fig, width="stretch")
-    st.caption("Si la cartera se corre hacia las bandas de más riesgo entre desarrollo y fuera de tiempo, "
-               "parte del deterioro es cambio de composición y no empeoramiento del comportamiento.")
-
-
-def pag_calibracion():
-    st.title("Calibración")
-    st.caption("El modelo puede ordenar bien y aun así equivocarse en el nivel. Esto mira el nivel.")
-
-    tabla = (CLI.groupby("split").agg(PD_media=("PD", "mean"), mora_real=("bad", "mean"), n=("bad", "size"))
-             .reindex(["TRAIN", "TEST", "OOT"]))
-    tabla["obs/pred"] = tabla.mora_real / tabla.PD_media
-    c1, c2 = st.columns([1, 1])
-    with c1:
-        st.dataframe(tabla.style.format({"PD_media": "{:.2%}", "mora_real": "{:.2%}",
-                                         "obs/pred": "{:.3f}", "n": "{:,.0f}"}), width="stretch")
-        ratio = tabla.loc["OOT", "obs/pred"]
-        icono, estado = semaforo(abs(ratio - 1), "calib")
-        st.metric(f"{icono} obs/pred fuera de tiempo", f"{ratio:.3f}", estado, delta_color="off")
-        if ratio > 1.1:
-            st.warning("La PD subestima el nivel de mora reciente. **Acción:** recalibrar el intercepto "
-                       "con la ventana más reciente. No afecta al ranking ni a las bandas.")
-    with c2:
-        fig, ax = plt.subplots(figsize=(5.2, 3.2))
-        x = np.arange(len(tabla))
-        ax.bar(x - .2, tabla.PD_media * 100, .4, label="PD media predicha", color=GRIS)
-        ax.bar(x + .2, tabla.mora_real * 100, .4, label="Mora observada", color=MAGENTA)
-        ax.set_xticks(x); ax.set_xticklabels(tabla.index); ax.legend(fontsize=8)
-        ax.set_ylabel("%"); ax.set_title("Predicho contra observado")
-        st.pyplot(fig, width="stretch")
-
-    st.subheader("Calibración por banda (fuera de tiempo)")
-    o = CLI[CLI.split == "OOT"]
-    por_banda = o.groupby("banda", observed=True).agg(n=("bad", "size"), PD_media=("PD", "mean"),
-                                                      mora_real=("bad", "mean")).reindex(BANDAS[::-1])
-    por_banda["obs/pred"] = por_banda.mora_real / por_banda.PD_media
-    st.dataframe(por_banda.style.format({"PD_media": "{:.2%}", "mora_real": "{:.2%}",
-                                         "obs/pred": "{:.2f}", "n": "{:,.0f}"}), width="stretch")
-    st.caption("Que el total cuadre no garantiza que cada banda cuadre. Esta tabla es la que pediría "
-               "un validador independiente.")
+    pv = D["psi_var"].reset_index()
+    pv.columns = ["variable", "PSI"]
+    pv["estado"] = pv.PSI.map(lambda x: ETIQ_ESTADO[estado(x, "psi")])
+    grafico(alt.Chart(pv).mark_bar(cornerRadiusEnd=3).encode(
+        y=alt.Y("variable:N", sort="-x", title=None), x=alt.X("PSI:Q", title="PSI TRAIN → OOT"),
+        color=alt.Color("estado:N", scale=alt.Scale(domain=list(ETIQ_ESTADO.values()), range=[C["ok"], C["warn"], C["bad"]])),
+        tooltip=["variable", alt.Tooltip("PSI:Q", format=".4f")]).properties(height=34 * len(pv) // 2 + 120, title="PSI por variable"))
+    html('<div class="card accent note"><b>Cómo se lee.</b> Si el PSI del score se mantiene bajo pero la calibración se '
+         'separa, la cartera cambió de nivel y no de composición: se recalibra el intercepto con la ventana reciente. Si el '
+         'PSI de una variable pasa a rojo, se revisa esa variable antes que el modelo. <code>INT_SALDO</code> tiene un '
+         'disparador adicional: un cambio en la política de precios obliga a revalidar.</div>')
 
 
-def pag_bandas():
-    st.title("Bandas y punto de corte")
-    o = CLI[CLI.split == "OOT"]
+def pag_corte():
+    seccion("Punto de corte", "A cuántos clientes alertar",
+            "Los cortes se calculan sobre la cartera fuera de tiempo. El modelo da la curva; negocio pone los supuestos.")
+    n, malos = len(OOT), int(OOT.bad.sum())
+    filas = []
+    for pct in (.10, .20, .30, .40, .50):
+        al = OOT.score <= OOT.score.quantile(pct)
+        filas.append((f"{pct:.0%} peor", al))
+    filas += [("Banda E", OOT.banda.eq(BANDAS[0])), ("Bandas E + D", OOT.banda.isin(BANDAS[:2]))]
+    cortes = pd.DataFrame([{"corte": k, "% cartera": a.mean(), "alertados": int(a.sum()),
+                            "malos capturados": int(OOT.bad[a].sum()), "recall": OOT.bad[a].sum() / malos,
+                            "mora alertados": OOT.bad[a].mean(), "mora no alertados": OOT.bad[~a].mean()} for k, a in filas])
 
-    t = o.groupby("banda", observed=True).agg(clientes=("bad", "size"), mora=("bad", "mean")).reindex(BANDAS[::-1])
-    t["% de la cartera"] = t.clientes / t.clientes.sum()
-    c1, c2 = st.columns([1.1, 1])
-    with c1:
-        st.subheader("Bandas de riesgo (fuera de tiempo)")
-        st.dataframe(t.style.format({"clientes": "{:,.0f}", "mora": "{:.2%}", "% de la cartera": "{:.1%}"}),
-                     width="stretch")
-        monotona = t.mora.is_monotonic_decreasing
-        if monotona:
-            st.success("Las bandas son monótonas: la mora baja de forma consistente de E hacia A.")
-        else:
-            st.warning("Las bandas no son monótonas en esta muestra: revisar los cortes.")
-    with c2:
-        fig, ax = plt.subplots(figsize=(5.2, 3.2))
-        (t.mora * 100).plot.bar(ax=ax, color=[MAGENTA, ROSA, GRIS, "#B9D4C9", "#8FBF9F"][:len(t)])
-        ax.set_title("% de mora por banda"); ax.set_xlabel(""); ax.tick_params(axis="x", rotation=20)
-        st.pyplot(fig, width="stretch")
+    with st.container(border=True):
+        st.markdown("**Supuestos de negocio**")
+        presets = {"Conservador": (25, 500, .20), "Base": (15, 600, .30), "Agresivo": (8, 800, .40)}
+        b = st.columns(len(presets))
+        for (nombre, vals), col in zip(presets.items(), b):
+            if col.button(nombre, width="stretch",
+                          type="primary" if st.session_state.get("preset", "Base") == nombre else "secondary"):
+                st.session_state.update(preset=nombre, costo=vals[0], perdida=vals[1], efect=vals[2])
+                st.rerun()
+        for k, v in zip(("costo", "perdida", "efect"), presets["Base"]):
+            st.session_state.setdefault(k, v)
+        c = st.columns(3)
+        costo = c[0].number_input("Costo por cliente gestionado (S/)", 1, 500, key="costo")
+        perdida = c[1].number_input("Pérdida por moroso early (S/)", 50, 10000, step=50, key="perdida")
+        efect = c[2].slider("Pérdida evitable con alerta", .05, .90, step=.05, key="efect")
 
-    st.divider()
-    st.subheader("Simulador de punto de corte")
-    st.caption("El corte no lo define el modelo: depende del apetito de riesgo, el margen por cliente "
-               "y el costo de la mora. Esto muestra el intercambio.")
-    pct = st.slider("% de la cartera que se gestiona (la de mayor riesgo)", 5, 50, 20, step=5)
-    corte = o.score.quantile(pct / 100)
-    gestionados, resto = o[o.score <= corte], o[o.score > corte]
-
-    k = st.columns(4)
-    k[0].metric("Score de corte", f"{corte:.0f}")
-    k[1].metric("Clientes gestionados", f"{len(gestionados):,}")
-    k[2].metric("Mora capturada", f"{gestionados.bad.sum() / o.bad.sum():.1%}")
-    k[3].metric("Mora del resto", f"{resto.bad.mean():.2%}", f"{resto.bad.mean() - o.bad.mean():+.2%} vs cartera",
-                delta_color="inverse")
-
-    fig, ax = plt.subplots(figsize=(9, 3))
-    q = np.arange(5, 55, 5)
-    captura = [o.bad[o.score <= o.score.quantile(x / 100)].sum() / o.bad.sum() * 100 for x in q]
-    ax.plot(q, captura, marker="o", color=MAGENTA)
-    ax.plot(q, q, "k--", lw=.8, label="gestión al azar")
-    ax.axvline(pct, color=AMBAR, lw=2)
-    ax.set_xlabel("% de cartera gestionada"); ax.set_ylabel("% de mora capturada")
-    ax.set_title("Curva de captura"); ax.legend(fontsize=8)
-    st.pyplot(fig, width="stretch")
-    st.dataframe(D["cortes"].style.format({"% gestionado": "{:.0%}", "score de corte": "{:.1f}",
-                                           "malos capturados": "{:.1%}",
-                                           "mora de los no gestionados": "{:.2%}"}),
-                 width="stretch", hide_index=True)
+    cortes["beneficio neto"] = cortes["malos capturados"] * perdida * efect - cortes["alertados"] * costo
+    equilibrio = costo / (perdida * efect)
+    mejor = cortes.loc[cortes["beneficio neto"].idxmax()]
+    grid([kpi("Corte recomendado", mejor.corte, f"{mejor['% cartera']:.0%} de la cartera", clase="accent"),
+          kpi("Morosos capturados", f"{mejor.recall:.0%}", f"{int(mejor['malos capturados']):,} de {malos:,}"),
+          kpi("Beneficio neto", f"S/ {mejor['beneficio neto'] / 1000:,.0f}k", "en los 2 meses OOT"),
+          kpi("Mora de equilibrio", f"{equilibrio:.1%}", "se amplía mientras el tramo siguiente la supere")])
+    d = cortes.assign(mejor=cortes.corte.eq(mejor.corte))
+    grafico(alt.Chart(d).mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3).encode(
+        x=alt.X("corte:N", sort=None, title=None, axis=alt.Axis(labelAngle=0, labelOverlap=False, labelFontSize=10)),
+        y=alt.Y("beneficio neto:Q", title="S/"),
+        color=alt.condition("datum.mejor", alt.value(C["amber"]), alt.value(C["magenta"])),
+        tooltip=["corte", alt.Tooltip("beneficio neto:Q", format=",.0f"), alt.Tooltip("recall:Q", format=".0%")]
+    ).properties(height=260, title="Beneficio neto por corte (ámbar = recomendado)"))
+    st.dataframe(cortes.set_index("corte")[["% cartera", "recall", "mora alertados", "mora no alertados", "beneficio neto"]]
+                 .style.format({"% cartera": "{:.0%}", "recall": "{:.0%}", "mora alertados": "{:.1%}",
+                                "mora no alertados": "{:.1%}", "beneficio neto": "S/ {:,.0f}"})
+                 .background_gradient(subset=["beneficio neto"], cmap="RdPu"), width="stretch")
+    html(f'<div class="card accent note"><b>Recomendación con estos supuestos: {mejor.corte}.</b> Como ya son clientes, '
+         f'el modelo no rechaza: alerta. Se prioriza capturar morosos (recall) sujeto a la capacidad de cobranza. Si la '
+         f'capacidad no alcanza para {mejor["% cartera"]:.0%} de la cartera, la banda E es el corte operativo mínimo.</div>')
 
 
 def pag_simulador():
-    st.title("🧮 Simulador de cliente")
-    st.caption("Ingresa un perfil y obtén su score, banda y el aporte de cada variable. "
-               "“Sin dato” usa el tramo *Missing* del binning, que es como el modelo trata un faltante estructural.")
-
-    valores, cols = {}, st.columns(3)
-    for i, v in enumerate(SEL):
-        with cols[i % 3]:
-            if v in CATS:
-                opciones = NIVELES[v] + ["(sin dato)"]
-                moda = MOD.get("moda", {}).get(v, NIVELES[v][0])     # arranca en la categoría más frecuente
-                x = st.selectbox(v, opciones, index=opciones.index(moda), key=f"s_{v}")
-                valores[v] = np.nan if x == "(sin dato)" else x
-            else:
-                r = RANGOS[v]
-                sin = st.checkbox(f"Sin dato — {v}", key=f"na_{v}",
-                                  help=f"{r['pct_faltante']:.0%} de los clientes no tiene este dato")
-                valores[v] = np.nan if sin else st.number_input(
-                    v, value=float(round(r["mediana"], 2)),
-                    min_value=float(min(r["p01"], 0) - abs(r["p01"])),
-                    max_value=float(abs(r["p99"]) * 5 + 1), key=f"n_{v}")
-
-    r, pts, W = puntuar(pd.DataFrame([valores]))
-    st.divider()
-    k = st.columns(4)
-    k[0].metric("Score", f"{r.score.iloc[0]:.0f}")
-    k[1].metric("PD estimada", f"{r.PD.iloc[0]:.2%}",
-                help="Calibrada al periodo de desarrollo. La mora reciente es mayor: ver Calibración.")
-    k[2].metric("Banda", str(r.banda.iloc[0]))
-    percentil = (CLI.score < r.score.iloc[0]).mean()
-    k[3].metric("Percentil en la cartera", f"{percentil:.0%}")
-
-    aporte = (pts.iloc[0] - PUNTOS_BASE).sort_values()
-    st.caption("El aporte se mide contra un cliente neutro (WoE = 0 en todas las variables). Un tramo *Missing* "
-               "con WoE 0 —como el de una categórica sin dato— aporta exactamente cero por construcción.")
-    fig, ax = plt.subplots(figsize=(9, 3.4))
-    aporte.plot.barh(ax=ax, color=[MAGENTA if x < 0 else "#2E8F8A" for x in aporte])
-    ax.axvline(0, color="k", lw=.8)
-    ax.set_title("Aporte de cada variable frente a un cliente promedio (puntos)\n"
-                 "verde suma score (menos riesgo) · magenta resta")
-    ax.set_ylabel("")
-    st.pyplot(fig, width="stretch")
-
-    with st.expander("Detalle: WoE y puntos por variable"):
-        det = pd.DataFrame({"WoE": W.iloc[0], "puntos": pts.iloc[0],
-                            "aporte vs promedio": aporte.reindex(SEL)})
-        st.dataframe(det.style.format("{:.2f}"), width="stretch")
-    st.caption("La suma de los puntos de todas las variables es exactamente el score: la tabla de puntos "
-               "no es una aproximación del modelo, es el modelo.")
-
-
-def pag_lote():
-    st.title("📂 Scoring por lote y monitoreo de un periodo nuevo")
-    st.caption("Sube un CSV con las columnas del modelo. Además de puntuar, compara la distribución del score "
-               "contra la de desarrollo: es el control que se corre cada mes.")
-    st.code(", ".join(SEL), language=None)
-
-    archivo = st.file_uploader("Archivo CSV", type=["csv"])
-    if archivo is None:
-        st.info("También sirve el CSV original de la base: se ignoran las columnas que el modelo no usa.")
-        return
-
+    seccion("Simulador", "Puntuar un cliente", "Usa el binning y los coeficientes guardados en modelo.pkl. "
+            "“Sin dato” cae en el tramo Missing, igual que en el modelo.")
     try:
-        try:
-            nuevo = pd.read_csv(archivo, low_memory=False)
-        except UnicodeDecodeError:
-            archivo.seek(0)
-            nuevo = pd.read_csv(archivo, encoding="latin-1", low_memory=False)
-    except Exception as e:
-        st.error(f"No se pudo leer el archivo: {e}")
+        MOD = cargar_modelo()
+    except Exception as e:  # optbinning no instalado o versión incompatible
+        st.warning(f"No se pudo cargar modelo.pkl ({type(e).__name__}). Instala optbinning en la misma versión del notebook.")
         return
+    SEL, COEF, ESC = MOD["seleccion"], MOD["coeficientes"], MOD["escala"]
+    F, O, N = ESC["factor"], ESC["offset"], len(SEL)
 
-    faltan = [v for v in SEL if v not in nuevo.columns]
-    if faltan:
-        st.error(f"Faltan columnas del modelo: {faltan}")
-        return
+    if st.button("Restablecer a cliente típico"):
+        for k in [k for k in st.session_state if k.startswith(("s_", "n_", "na_"))]:
+            del st.session_state[k]
+        st.rerun()
+    valores = {}
+    with st.container(border=True):
+        cols = st.columns(3)
+        for i, v in enumerate(SEL):
+            with cols[i % 3]:
+                if v in MOD["categoricas"]:
+                    ops = MOD["niveles"][v] + ["(sin dato)"]
+                    x = st.selectbox(v, ops, index=ops.index(MOD.get("moda", {}).get(v, ops[0])), key=f"s_{v}")
+                    valores[v] = np.nan if x == "(sin dato)" else x
+                else:
+                    r = MOD["rangos"][v]
+                    sin = st.session_state.get(f"na_{v}", False)
+                    x = st.number_input(v, value=float(round(r["mediana"], 2)), key=f"n_{v}", disabled=sin)
+                    st.toggle("sin dato", key=f"na_{v}", help=f"{r['pct_faltante']:.0%} de la cartera no tiene este dato")
+                    valores[v] = np.nan if sin else x
 
-    nuevo = limpiar_como_base(nuevo)
-    r, pts, _ = puntuar(nuevo)
-    salida = pd.concat([nuevo[[c for c in ("serie", "PERIODO") if c in nuevo.columns]],
-                        nuevo[SEL], r[["PD", "score", "banda"]]], axis=1)
-    st.success(f"{len(salida):,} clientes puntuados.")
-
-    base_train = CLI[CLI.split == "TRAIN"].score
-    psi_lote = psi(base_train, r.score)
-    icono, estado = semaforo(psi_lote, "psi")
-
-    k = st.columns(4)
-    k[0].metric("Score medio", f"{r.score.mean():.0f}")
-    k[1].metric("PD media", f"{r.PD.mean():.2%}")
-    k[2].metric(f"{icono} PSI contra desarrollo", f"{psi_lote:.4f}", estado, delta_color="off")
-    k[3].metric("% en bandas D y E", f"{r.banda.isin(BANDAS[:2]).mean():.1%}")
-
-    if psi_lote >= 0.25:
-        st.error("PSI en rojo: la población de este lote difiere de la de desarrollo. Revisar la fuente de "
-                 "datos y considerar recalibrar antes de usar el score para decidir.")
-    elif psi_lote >= 0.10:
-        st.warning("PSI en ámbar: hay desplazamiento de población. Vigilar en el siguiente corte.")
-
-    c1, c2 = st.columns(2)
-    with c1:
-        fig, ax = plt.subplots(figsize=(5.2, 3))
-        ax.hist(base_train, bins=40, alpha=.55, density=True, color=GRIS, label="Desarrollo")
-        ax.hist(r.score, bins=40, alpha=.55, density=True, color=AMBAR, label="Lote nuevo")
-        ax.legend(); ax.set_title("Distribución del score"); ax.set_xlabel("Score")
-        st.pyplot(fig, width="stretch")
-    with c2:
-        comp = pd.DataFrame({
-            "Desarrollo": CLI[CLI.split == "TRAIN"].banda.value_counts(normalize=True).reindex(BANDAS[::-1]),
-            "Lote nuevo": r.banda.value_counts(normalize=True).reindex(BANDAS[::-1])}) * 100
-        fig, ax = plt.subplots(figsize=(5.2, 3))
-        comp.plot.bar(ax=ax, color=[GRIS, AMBAR])
-        ax.set_title("% de clientes por banda"); ax.set_xlabel(""); ax.tick_params(axis="x", rotation=20)
-        st.pyplot(fig, width="stretch")
-
-    st.dataframe(salida.head(100), width="stretch")
-    st.download_button("⬇️ Descargar resultados (CSV)", salida.to_csv(index=False).encode(),
-                       "scoring_resultados.csv", "text/csv")
+    d = pd.DataFrame([valores])
+    W = {}
+    for v in SEL:
+        b = MOD["bins"][v]
+        x = d[v].values if b.dtype == "numerical" else d[v].astype(object).where(d[v].notna(), None).values
+        W[v] = float(b.transform(x, metric="woe", metric_missing="empirical", metric_special="empirical")[0])
+    pts = {v: -(COEF[v] * W[v] + COEF["const"] / N) * F + O / N for v in SEL}
+    score = sum(pts.values())
+    pd_ = 1 / (1 + np.exp((score - O) / F))
+    banda = pd.cut([score], [-np.inf, *MOD["cortes_banda"], np.inf], labels=MOD["etiquetas_banda"])[0]
+    base = O / N - (COEF["const"] / N) * F
+    grid([kpi("Score", f"{score:.0f}", "", None, "dark"),
+          kpi("PD estimada", f"{pd_:.2%}", "nivel de desarrollo"),
+          kpi("Banda", str(banda), "alertar" if banda in BANDAS[:2] else "sin gestión",
+              "bad" if banda == BANDAS[0] else "warn" if banda == BANDAS[1] else None),
+          kpi("Percentil en la cartera", f"{(CLI.score < score).mean():.0%}", "0% = más riesgoso")])
+    ap = pd.DataFrame({"variable": SEL, "aporte": [pts[v] - base for v in SEL]})
+    ap["sentido"] = np.where(ap.aporte >= 0, "suma (menos riesgo)", "resta (más riesgo)")
+    grafico(alt.Chart(ap).mark_bar(cornerRadiusEnd=3).encode(
+        y=alt.Y("variable:N", sort="-x", title=None, axis=alt.Axis(labelOverlap=False, labelLimit=220)),
+        x=alt.X("aporte:Q", title="puntos frente a un cliente neutro"),
+        color=alt.Color("sentido:N", scale=alt.Scale(domain=["suma (menos riesgo)", "resta (más riesgo)"], range=[C["ok"], C["magenta"]])),
+        tooltip=["variable", alt.Tooltip("aporte:Q", format="+.1f")]).properties(height=28 * len(SEL) + 40, title="Por qué este score"))
 
 
 def pag_gobierno():
-    st.title("📋 Gobierno del modelo")
-    f = D["ficha"]
+    seccion("Gobierno", "Decisiones documentadas", "Lo que un validador independiente revisa: reglas, criterio de "
+            "elección del modelo y costo de las exclusiones de política.")
+    grid([kpi("Reglas aplicadas", str(len(FICHA["reglas_aplicadas"])), "; ".join(FICHA["reglas_aplicadas"]), None, "accent"),
+          kpi("Reglas descartadas", str(len(FICHA["reglas_descartadas"])), "verificadas con datos"),
+          kpi("Excluidas por política", str(len(FICHA["excluidas_por_politica"])), ", ".join(FICHA["excluidas_por_politica"][:3]) + "…"),
+          kpi("Costo de la política", f"{D['politica'].iloc[-1, -1]:+.3f}", "Gini OOT que se resigna")])
 
-    st.subheader("Ficha del modelo")
-    izq, der = st.columns(2)
-    with izq:
-        st.dataframe(pd.Series({
-            "Nombre": f["nombre"], "Versión": str(f["version"]), "Evento": f["evento"],
-            "Variables": str(f["n_variables"]), "Semilla": str(f["seed"]),
-            "Base total": f"{f['base_total']:,}",
-            "Muestra de desarrollo": f"{f['muestra_desarrollo']:,} ({f['sample_frac']:.0%})",
-            "Ventana de desarrollo": f["ventana_desarrollo"], "Ventana fuera de tiempo": f["ventana_oot"],
-        }, dtype="string").to_frame("valor"), width="stretch")
-    with der:
-        st.dataframe(pd.Series({
-            "Gini TRAIN": f"{f['gini']['TRAIN']:.4f}", "Gini TEST": f"{f['gini']['TEST']:.4f}",
-            "Gini OOT": f"{f['gini']['OOT']:.4f}", "KS OOT": f"{f['ks_oot']:.4f}",
-            "PSI del score (OOT)": f"{f['psi_score_oot']:.4f}",
-            "Calibración obs/pred": f"{f['calibracion_oot_obs_pred']:.3f}",
-            "Challenger (LightGBM) Gini OOT": f"{f['challenger_gini_oot']:.4f}",
-        }, dtype="string").to_frame("valor"), width="stretch")
-
-    st.subheader("Reglas de negocio: verificación")
-    st.caption("Cada regla impuesta se contrastó contra los datos. Dos no sobrevivieron y se eliminaron.")
-    st.dataframe(D["reglas"].style.format({"Gini OOT": "{:.4f}", "estabilidad (Jaccard)": "{:.4f}"}),
-                 width="stretch")
-    st.markdown("""
-- **R1 (cobertura ≥ 10%) es la única regla que se mantiene**, por justificación operativa: una variable con dato en
-  menos del 10% de los clientes no es monitoreable en producción.
-- **R2 (ventana corta por defecto) se descartó**: sobre la base completa cuesta más de dos puntos de Gini y la
-  estabilidad que compraba casi desaparece; además eliminaba la variable de una dimensión de riesgo.
-- **R3 (tope por familia) se descartó**: peor Gini de todas las variantes. Limitar las variables de perfil es una
-  decisión de política, y como tal se declara y se mide, no se esconde en el pipeline.
-- **R4 (familias obligatorias) se descartó**: el hueco que iba a tapar lo producía R2.
-- **R5 (excluir `INT_SALDO`) se descartó**: la variable es comportamiento del cliente —cuánto interés genera sobre lo
-  que debe—, no la tarifa del banco. La circularidad pasa a ser un riesgo monitoreado: su PSI está en el tablero y un
-  cambio en la política de precios dispara revalidación.
-""")
-    with st.expander("Auditoría: por qué se descartó cada variable"):
-        aud = D["auditoria"]
-        st.dataframe(aud[aud.iloc[:, 0] != "elegible"], width="stretch")
-
-    st.subheader("Decisión del modelo")
-    c1, c2 = st.columns([1.3, 1])
-    with c1:
-        st.dataframe(D["matriz"].style.format("{:.2f}"), width="stretch")
-    with c2:
-        st.dataframe(D["sensibilidad"].style.format("{:.2f}"), width="stretch")
-    st.info("**La sensibilidad, dicha de frente:** con pesos solo estadísticos ganaría el LightGBM. "
-            "La recomendación del scorecard descansa en interpretabilidad, validación independiente y "
-            "capacidad de explicar un rechazo, no en superioridad estadística.")
-
-    st.subheader("Variables excluidas por política")
-    st.dataframe(D["politica"].style.format("{:.4f}"), width="stretch")
-    st.caption(f"Excluidas: {', '.join(f['excluidas_por_politica'])}. "
-               "La tabla mide cuánto Gini se resigna por esa decisión.")
-
-    st.subheader("Pendiente antes de producción")
-    st.markdown("""
-| Pendiente | Acción |
-|---|---|
-| **Calibración** | recalibrar el intercepto con la ventana más reciente |
-| **Equidad** | medir razón de aprobación y obs/pred por grupo; revisar proxies con Cumplimiento |
-| **Estabilidad** | monitoreo mensual con los semáforos de este aplicativo |
-| **Gobierno** | categorización por materialidad, inventario de modelos, validación independiente y back-testing (Res. SBS 53-2023) |
-
-**Limitaciones del caso:** el horizonte del evento no está documentado en la bitácora; hay solo 8 meses de
-historia y el fuera de tiempo son 2 meses; la base no incluye ingresos, comportamiento interno ni clientes
-rechazados, y el evento resultó casi independiente del atraso previo.
-""")
+    tabs = st.tabs(["Reglas de negocio", "Elección del modelo", "Política", "Ficha"])
+    with tabs[0]:
+        r = D["reglas"]
+        st.dataframe(r.style.format({c: "{:.4f}" for c in r.select_dtypes("float").columns})
+                     .highlight_max(subset=[c for c in r.columns if "Gini" in c], color="#F3DCEB"), width="stretch")
+        html('<div class="grid wide">' + "".join(f'<div class="card note">{t}</div>' for t in FICHA["reglas_descartadas"]) + "</div>")
+        with st.expander("Auditoría variable por variable"):
+            st.dataframe(D["auditoria"], width="stretch")
+    with tabs[1]:
+        m = D["matriz"].sort_values("TOTAL", ascending=False)
+        st.dataframe(m.style.format("{:.2f}").background_gradient(subset=["TOTAL"], cmap="RdPu"), width="stretch")
+        st.caption("Sensibilidad: ¿cambia el ganador si cambian los pesos?")
+        s = D["sens"]
+        st.dataframe(s.style.format("{:.2f}").highlight_max(color="#F3DCEB"), width="stretch")
+        html(f'<div class="card accent note"><b>Ganador por escenario:</b> '
+             f'{", ".join(f"{k} → {v}" for k, v in s.idxmax().items())}. La recomendación descansa en interpretabilidad y '
+             f'gobierno, no en superioridad estadística.</div>')
+    with tabs[2]:
+        st.dataframe(D["politica"].style.format("{:.4f}"), width="stretch")
+        html('<div class="card note">Excluir género, estado civil y ubicación es una decisión de política, no un requisito '
+             'estadístico: se declara y se mide su costo. Pendiente: medir tasa de alerta y obs/pred por grupo con Cumplimiento.</div>')
+    with tabs[3]:
+        st.json(FICHA, expanded=False)
 
 
-PAGINAS = {
-    "Salud del modelo": pag_salud,
-    "Explorador de variables": pag_variables,
-    "Desempeño": pag_desempeno,
-    "Estabilidad y monitoreo": pag_estabilidad,
-    "Calibración": pag_calibracion,
-    "Bandas y punto de corte": pag_bandas,
-    "Simulador de cliente": pag_simulador,
-    "Scoring por lote": pag_lote,
-    "Gobierno del modelo": pag_gobierno,
-}
+# ═══════════════════════════════ Navegación ═══════════════════════════════
+PAGINAS = {"Resumen": pag_resumen, "Variables": pag_variables, "Desempeño": pag_desempeno,
+           "Estabilidad": pag_estabilidad, "Punto de corte": pag_corte, "Simulador": pag_simulador, "Gobierno": pag_gobierno}
 
+with st.sidebar:
+    st.markdown("### ◆ Gestión del modelo")
+    st.caption(f"Fuente: `modelo_export/` · {len(CLI):,} clientes puntuados")
+    st.caption("Este tablero no lee la base original.")
 
-def main():
-    st.sidebar.title("Gestión del modelo")
-    st.sidebar.caption("Scorecard *early* de morosidad")
-    pagina = st.sidebar.radio("Sección", list(PAGINAS))
-    st.sidebar.divider()
-    f = D["ficha"]
-    icono, _ = semaforo(f["gini"]["OOT"], "gini")
-    st.sidebar.markdown(f"""**Estado general** {icono}
-Gini OOT `{f['gini']['OOT']:.3f}` · KS `{f['ks_oot']:.3f}`
-PSI `{f['psi_score_oot']:.3f}` · obs/pred `{f['calibracion_oot_obs_pred']:.2f}`
-
-**Modelo** {f['n_variables']} variables
-**Escala** {ESCALA['score_base']} pts = odds {ESCALA['odds_base']}:1, PDO {ESCALA['PDO']}
-**Muestra** {f['muestra_desarrollo']:,} ({f['sample_frac']:.0%} de la base)""")
-    PAGINAS[pagina]()
-
-
-if __name__ == "__main__" or True:
-    import os
-    if os.environ.get("APP_SMOKE"):
-        for nombre, fn in PAGINAS.items():
-            if nombre == "Scoring por lote":
-                continue
-            print(">>", nombre)
-            fn()
-        base = pd.read_csv("/mnt/user-data/uploads/Prueba_Modelos_Caso_Morosidad.csv",
-                           encoding="latin-1", low_memory=False).head(500)
-        r, _, _ = puntuar(limpiar_como_base(base))
-        print(r[["PD", "score", "banda"]].describe().to_string())
-        print("PSI lote:", round(psi(CLI[CLI.split == "TRAIN"].score, r.score), 4))
-        print("SMOKE_OK")
-    else:
-        main()
+pagina = st.pills("Sección", list(PAGINAS), default="Resumen", label_visibility="collapsed") or "Resumen"
+PAGINAS[pagina]()
